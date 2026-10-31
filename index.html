@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>VLSI LMS — Redirecting...</title>
+  <script src="assets/lms-data.js"></script>
+  <script>
+    (function() {
+      var user = window.LMS ? window.LMS.getCurrentUser() : null;
+      if (!user) {
+        window.location.replace('login.html');
+      } else if (user.role === 'admin') {
+        window.location.replace('admin/index.html');
+      } else if (user.role === 'teacher') {
+        window.location.replace('teacher/index.html');
+      } else {
+        window.location.replace('student/index.html');
+      }
+    })();
+  </script>
+</head>
+<body style="font-family: system-ui, sans-serif; display: grid; place-items: center; min-height: 100vh; background: #f4f6fb; margin: 0;">
+  <p style="color: #64748B;">Loading VLSI LMS...</p>
+</body>
+</html>
