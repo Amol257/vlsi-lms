@@ -48,15 +48,18 @@ CREATE TABLE IF NOT EXISTS `lms_batches` (
 -- 4. Users Table (Admin, Teacher, Student)
 CREATE TABLE IF NOT EXISTS `lms_users` (
   `id` int(11) NOT NULL AUTO_INCREMENT,
+  `supabase_uid` varchar(64) DEFAULT NULL,
   `name` varchar(128) NOT NULL,
   `email` varchar(191) NOT NULL,
-  `password_hash` varchar(255) NOT NULL,
+  `password_hash` varchar(255) DEFAULT NULL,
   `role` enum('admin','teacher','student') NOT NULL DEFAULT 'student',
   `batch_id` int(11) DEFAULT NULL,
-  `status` enum('active','suspended') DEFAULT 'active',
+  `status` enum('active','blocked') NOT NULL DEFAULT 'active',
   `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `last_login_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `idx_user_email` (`email`),
+  UNIQUE KEY `idx_user_supabase_uid` (`supabase_uid`),
   KEY `idx_user_batch` (`batch_id`),
   CONSTRAINT `fk_user_batch` FOREIGN KEY (`batch_id`) REFERENCES `lms_batches` (`id`) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
