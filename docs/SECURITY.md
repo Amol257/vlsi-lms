@@ -57,14 +57,20 @@ This document details the multi-layered security controls implemented across the
 
 1. Workstation Packaging:
    - Slices video into 6-second `.ts` segments using AES-128 encryption.
-   - Encrypts the raw 16-byte key with the LMS `APP_KEY` using AES-256-CBC.
-2. Tokenized Key Gating:
-   - Playlist endpoint `/api/video_playlist.php` generates a signed HMAC token with a 10-minute time-to-live.
-   - Key delivery endpoint `/api/video_key.php` validates the HMAC signature, confirms active student session lock, and decrypts the key on demand.
-   - Burst detection: logs a security alert to `audit_log` if more than 5 key requests are made within 30 seconds.
-3. Dynamic Watermarking:
+   - Generates random 16-byte key and writes temporary `manifest.json`.
+   - Plaintext keys (`enc.key`, `keyinfo.txt`) are deleted immediately after slicing.
+2. Server Key Encryption at Rest:
+   - Ingest encrypts the 16-byte key using Libsodium secretbox (`sodium_crypto_secretbox`) with the server `APP_KEY`.
+   - Stored as `base64(nonce + ciphertext)` in `videos.key_enc`.
+   - Fails closed if `APP_KEY` is missing or default.
+   - Temporary `manifest.json` is purged immediately upon import.
+3. Tokenized Key Gating:
+   - Playlist endpoint `/api/video_playlist.php` generates a signed HMAC token.
+   - Key delivery endpoint `/api/video_key.php` validates the HMAC signature, confirms active student session lock, and decrypts the key on demand via `sodium_crypto_secretbox_open`.
+   - Key delivery is the only place the raw key is decrypted and delivered; it is never logged.
+   - Burst detection: logs a security alert to `audit_log` if rapid repeated key requests are detected.
+4. Dynamic Watermarking:
    - A moving text watermark displays student email, client IP, and real-time clock across the video viewport to discourage screen recording.
-   - Video playback automatically pauses when the browser window loses focus or the tab is hidden.
 
 ---
 

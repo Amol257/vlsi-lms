@@ -1,14 +1,12 @@
 # ==============================================================================
 # VLSI LMS : Workstation HLS AES-128 Video Packaging Script (PowerShell)
 # Encrypts MP4 into segment files with a random 16-byte key and produces package.
+# Does NOT use APP_KEY. Stores plain key in private manifest.json for server import.
 # ==============================================================================
 
 param (
     [Parameter(Mandatory=$true)]
     [string]$InputVideo,
-
-    [Parameter(Mandatory=$true)]
-    [string]$AppKeyHex,
 
     [string]$OutputDir = "./hls_output"
 )
@@ -37,6 +35,8 @@ $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
 $rng.GetBytes($rawKey)
 [System.IO.File]::WriteAllBytes("enc.key", $rawKey)
 
+$keyHex = ($rawKey | ForEach-Object { $_.ToString("x2") }) -join ""
+
 Write-Host "==> Creating ffmpeg keyinfo file..."
 "enc.key`nenc.key" | Set-Content -Path "keyinfo.txt" -Encoding ASCII
 
@@ -50,42 +50,39 @@ ffmpeg -y -i "$inputFull" `
   -hls_segment_filename "segment_%04d.ts" `
   index.m3u8
 
-Write-Host "==> Encrypting raw key with LMS APP_KEY for database storage..."
-$aes = [System.Security.Cryptography.Aes]::Create()
-$aes.Mode = [System.Security.Cryptography.CipherMode]::CBC
-$aes.Padding = [System.Security.Cryptography.PaddingMode]::PKCS7
-
-# Normalize key bytes from 32-byte hex
-$keyBytes = New-Object byte[] 32
-$cleanKeyHex = $AppKeyHex.PadRight(64, '0').Substring(0, 64)
-for ($i = 0; $i -lt 32; $i++) {
-    $keyBytes[$i] = [Convert]::ToByte($cleanKeyHex.Substring($i * 2, 2), 16)
+# Extract duration and file size
+$durationSec = 0
+if (Get-Command ffprobe -ErrorAction SilentlyContinue) {
+    try {
+        $rawDur = ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "$inputFull"
+        $durationSec = [int][Math]::Floor([double]$rawDur)
+    } catch {
+        $durationSec = 0
+    }
 }
-$aes.Key = $keyBytes
-$aes.GenerateIV()
 
-$encryptor = $aes.CreateEncryptor()
-$cipherBytes = $encryptor.TransformFinalBlock($rawKey, 0, $rawKey.Length)
+$totalSize = 0
+Get-ChildItem -File | ForEach-Object { $totalSize += $_.Length }
 
-$combined = New-Object byte[] ($aes.IV.Length + $cipherBytes.Length)
-[Buffer]::BlockCopy($aes.IV, 0, $combined, 0, $aes.IV.Length)
-[Buffer]::BlockCopy($cipherBytes, 0, $combined, $aes.IV.Length, $cipherBytes.Length)
-$keyEnc = [Convert]::ToBase64String($combined)
-
-# Metadata JSON
-$videoInfo = @{
+# Write private manifest.json
+$manifest = @{
     title = [System.IO.Path]::GetFileName($inputFull)
-    key_enc = $keyEnc
+    duration_sec = $durationSec
+    size_bytes = $totalSize
+    key_hex = $keyHex
     created_at = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 }
-$videoInfo | ConvertTo-Json | Set-Content -Path "packaging_info.json" -Encoding UTF8
+$manifest | ConvertTo-Json | Set-Content -Path "manifest.json" -Encoding UTF8
 
-Remove-Item "keyinfo.txt" -Force
+# Remove plaintext key files
+Remove-Item "enc.key", "keyinfo.txt" -Force -ErrorAction SilentlyContinue
 
 Pop-Location
 
 Write-Host "========================================================================"
 Write-Host "Packaging Complete!"
 Write-Host "Output Directory: $resolvedOut"
-Write-Host "key_enc payload: $keyEnc"
+Write-Host "WARNING: manifest.json contains the raw encryption key. Once imported into"
+Write-Host "the LMS database via admin/videos.php, delete manifest.json immediately."
+Write-Host "Never upload enc.key or leave manifest.json in public directories."
 Write-Host "========================================================================"

@@ -23,45 +23,77 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
         $incoming_dir = dirname(__DIR__) . '/media/incoming';
         $storage_base = lms_get_video_storage_dir();
         $imported_count = 0;
+        $import_errors = [];
 
         if (is_dir($incoming_dir)) {
             $items = scandir($incoming_dir);
             foreach ($items as $item) {
                 if ($item === '.' || $item === '..') continue;
                 $pkg_dir = $incoming_dir . '/' . $item;
-                $info_file = $pkg_dir . '/packaging_info.json';
+                $manifest_file = $pkg_dir . '/manifest.json';
+                $legacy_info = $pkg_dir . '/packaging_info.json';
                 $m3u8_file = $pkg_dir . '/index.m3u8';
 
-                if (is_dir($pkg_dir) && file_exists($info_file) && file_exists($m3u8_file)) {
-                    $json_str = file_get_contents($info_file);
-                    $info = json_decode($json_str, true);
+                if (is_dir($pkg_dir) && file_exists($m3u8_file)) {
+                    $raw_key = null;
+                    $title = 'Uploaded Lecture';
+                    $duration = 3600;
+                    $size = 0;
 
-                    if ($info && !empty($info['key_enc'])) {
-                        $hls_dir_name = bin2hex(random_bytes(16));
-                        $target_path = $storage_base . '/' . $hls_dir_name;
-
-                        // Move package directory into protected storage
-                        if (rename($pkg_dir, $target_path)) {
-                            $title = $info['title'] ?? 'Uploaded Lecture';
+                    if (file_exists($manifest_file)) {
+                        $manifest = json_decode(file_get_contents($manifest_file), true);
+                        if (!empty($manifest['key_hex']) && strlen($manifest['key_hex']) === 32 && ctype_xdigit($manifest['key_hex'])) {
+                            $raw_key = hex2bin($manifest['key_hex']);
+                            $title = $manifest['title'] ?? $title;
+                            $duration = (int)($manifest['duration_sec'] ?? 3600);
+                            $size = (int)($manifest['size_bytes'] ?? 0);
+                        }
+                    } elseif (file_exists($legacy_info)) {
+                        $info = json_decode(file_get_contents($legacy_info), true);
+                        if (!empty($info['key_hex']) && strlen($info['key_hex']) === 32 && ctype_xdigit($info['key_hex'])) {
+                            $raw_key = hex2bin($info['key_hex']);
+                            $title = $info['title'] ?? $title;
                             $duration = (int)($info['duration_sec'] ?? 3600);
                             $size = (int)($info['size_bytes'] ?? 0);
-                            $key_enc = $info['key_enc'];
-
-                            // Default program_id = 1
-                            $prog_id = !empty($_POST['program_id']) ? (int)$_POST['program_id'] : 1;
-
-                            $ins = $pdo->prepare("INSERT INTO videos (program_id, title, status, uploaded_by, hls_dir, key_enc, duration_sec, size_bytes, created_at) VALUES (?, ?, 'approved', ?, ?, ?, ?, ?, NOW())");
-                            $ins->execute([$prog_id, $title, $admin['id'], $hls_dir_name, $key_enc, $duration, $size]);
-                            $new_vid = (int)$pdo->lastInsertId();
-
-                            lms_audit_log($admin['id'], 'import_video', 'videos', $new_vid, [
-                                'title' => $title,
-                                'hls_dir' => $hls_dir_name,
-                                'size' => $size
-                            ]);
-
-                            $imported_count++;
                         }
+                    }
+
+                    if ($raw_key === null || strlen($raw_key) !== 16) {
+                        $import_errors[] = "Package {$item}: Missing valid key_hex in manifest.json.";
+                        continue;
+                    }
+
+                    $key_enc = lms_encrypt_video_key($raw_key);
+                    if ($key_enc === null) {
+                        $import_errors[] = "Package {$item}: Encryption failed. Verify APP_KEY is set and valid.";
+                        continue;
+                    }
+
+                    $hls_dir_name = bin2hex(random_bytes(16));
+                    $target_path = $storage_base . '/' . $hls_dir_name;
+
+                    // Move package directory into protected storage
+                    if (rename($pkg_dir, $target_path)) {
+                        // Immediately purge manifest and plaintext keys from storage
+                        @unlink($target_path . '/manifest.json');
+                        @unlink($target_path . '/packaging_info.json');
+                        @unlink($target_path . '/enc.key');
+                        @unlink($target_path . '/keyinfo.txt');
+
+                        // Default program_id = 1
+                        $prog_id = !empty($_POST['program_id']) ? (int)$_POST['program_id'] : 1;
+
+                        $ins = $pdo->prepare("INSERT INTO videos (program_id, title, status, uploaded_by, hls_dir, key_enc, duration_sec, size_bytes, created_at) VALUES (?, ?, 'approved', ?, ?, ?, ?, ?, NOW())");
+                        $ins->execute([$prog_id, $title, $admin['id'], $hls_dir_name, $key_enc, $duration, $size]);
+                        $new_vid = (int)$pdo->lastInsertId();
+
+                        lms_audit_log($admin['id'], 'import_video', 'videos', $new_vid, [
+                            'title' => $title,
+                            'hls_dir' => $hls_dir_name,
+                            'size' => $size
+                        ]);
+
+                        $imported_count++;
                     }
                 }
             }
@@ -69,6 +101,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
 
         if ($imported_count > 0) {
             $notice = "Successfully scanned and imported {$imported_count} HLS video package(s).";
+        } elseif (!empty($import_errors)) {
+            $error = implode(' ', $import_errors);
         } else {
             $notice = "No new packaged videos found in media/incoming/.";
         }
