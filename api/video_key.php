@@ -41,15 +41,18 @@ if ($user['role'] === 'student') {
     }
 }
 
-// 3. Rate Limiting and Burst Detection (>5 requests in 30 seconds logged to audit_log)
+// 3. Rate Limiting and Burst Detection (>5 requests in 30 seconds)
 $client_ip = get_client_ip();
 $burst_key = "burst_key_{$user['id']}";
 if (!check_rate_limit('video_key_burst', $burst_key, 5, 30)) {
-    // Exceeded burst limit of 5 requests in 30s
-    lms_audit_log($user['id'], 'key_burst_detected', 'videos', $video_id, [
-        'ip' => $client_ip,
-        'warning' => 'Unusual rapid key request rate detected'
-    ]);
+    // Log to audit_log at most once per minute per user to prevent table flooding
+    $alert_key = "key_burst_alert_{$user['id']}";
+    if (check_rate_limit('video_key_burst_log', $alert_key, 1, 60)) {
+        lms_audit_log($user['id'], 'key_burst_detected', 'videos', $video_id, [
+            'ip' => $client_ip,
+            'warning' => 'Unusual rapid key request rate detected'
+        ]);
+    }
 
     // Hard limit: block if > 20 requests in 30s
     if (!check_rate_limit('video_key_hard', $burst_key, 20, 30)) {
@@ -58,7 +61,7 @@ if (!check_rate_limit('video_key_burst', $burst_key, 5, 30)) {
     }
 }
 
-// 4. Retrieve and Decrypt Key
+// 4. Retrieve and Decrypt Key using sodium secretbox
 try {
     $stmt = $pdo->prepare("SELECT key_enc FROM videos WHERE id = ? LIMIT 1");
     $stmt->execute([$video_id]);
@@ -75,7 +78,7 @@ try {
         die("Failed to decrypt video key.");
     }
 
-    // 5. Output Raw 16-byte Binary AES Key
+    // 5. Output Raw 16-byte Binary AES Key (never logged or cached)
     header('Content-Type: application/octet-stream');
     header('Content-Length: 16');
     header('Cache-Control: no-store, no-cache, must-revalidate, private');

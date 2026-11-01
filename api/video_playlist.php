@@ -30,6 +30,14 @@ try {
         die("Video not found.");
     }
 
+    // Require published/approved status for students (admins and teachers exempt)
+    if ($user['role'] === 'student') {
+        if (!in_array($video['status'], ['approved', 'published'], true)) {
+            http_response_code(403);
+            die("Forbidden: Video is not published.");
+        }
+    }
+
     // Access authorization check
     $allowed = false;
     if ($user['role'] === 'admin' || $user['role'] === 'teacher') {
@@ -68,21 +76,38 @@ try {
         die("Failed to read video playlist.");
     }
 
-    // Generate secure 10-minute HMAC token
-    $token = lms_generate_key_token($user['id'], $video_id, 600);
+    // Token lifetime: duration_sec + 30 minutes, capped at 4 hours (default 2 hours if missing)
+    $dur = (int)($video['duration_sec'] ?? 0);
+    if ($dur > 0) {
+        $ttl = min(14400, $dur + 1800);
+    } else {
+        $ttl = 7200;
+    }
+
+    $token = lms_generate_key_token($user['id'], $video_id, $ttl);
+    if ($token === null) {
+        http_response_code(500);
+        die("Server security error: Key signing unavailable.");
+    }
+
     $key_url = "/api/video_key.php?id={$video_id}&t={$token}";
 
     // Rewrite encryption key URI
     $rewritten = preg_replace('/URI="[^"]*"/', 'URI="' . $key_url . '"', $raw_m3u8);
 
-    // Rewrite relative segment paths to secure segment streaming proxy
+    // Rewrite relative segment paths based on segments_mode (php or static)
+    $segments_mode = lms_config('video.segments_mode', 'php');
     $lines = explode("\n", $rewritten);
     $output_lines = [];
     foreach ($lines as $line) {
         $trimmed = trim($line);
         if (str_ends_with($trimmed, '.ts') && !str_starts_with($trimmed, '#')) {
-            $seg_name = urlencode(basename($trimmed));
-            $output_lines[] = "/api/video_segment.php?id={$video_id}&s={$seg_name}&t={$token}";
+            $seg_name = basename($trimmed);
+            if ($segments_mode === 'static') {
+                $output_lines[] = "/media/hls/{$hls_dir}/" . rawurlencode($seg_name);
+            } else {
+                $output_lines[] = "/api/video_segment.php?id={$video_id}&s=" . urlencode($seg_name) . "&t={$token}";
+            }
         } else {
             $output_lines[] = $line;
         }

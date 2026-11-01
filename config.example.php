@@ -29,6 +29,12 @@ return [
         'session_absolute_timeout' => 86400, // 24 hours
         'server_transcode' => false,
     ],
+    'video' => [
+        'segments_mode' => 'php', // 'php' (per-request tokenized authentication) or 'static' (direct static files from /media/hls/)
+    ],
+    'player' => [
+        'hidden_pause_seconds' => 60, // pause video if tab is hidden for longer than this duration
+    ],
     'razorpay' => [
         'enabled' => false,
         'key_id' => 'rzp_live_placeholder',

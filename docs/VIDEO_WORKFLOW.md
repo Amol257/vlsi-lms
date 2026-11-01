@@ -59,3 +59,27 @@ Because Hostinger shared web hosting does not offer CLI `ffmpeg` or `exec()` exe
 3. Client requests key: `/api/video_key.php?id=N&t=TOKEN`.
 4. Server validates HMAC token, verifies single session concurrency, checks rate limits, decrypts `key_enc` via `sodium_crypto_secretbox_open`, and returns the 16-byte raw AES key. The key is never logged.
 5. The player in `student/watch.php` decrypts segments on-the-fly inside the browser using self-hosted `hls.js`.
+
+---
+
+## Segment Streaming Modes and Shared Hosting Load
+
+The configuration key `video.segments_mode` supports two operating modes:
+
+### Mode 1: `php` (Default Tokenized Streaming Proxy)
+- Segments are streamed through `/api/video_segment.php`.
+- Every segment request validates the timed HMAC token and confirms active session concurrency.
+- `session_write_close()` is executed immediately after authentication to release session locks and prevent serial request stalls.
+- HTTP Range requests (206 Partial Content) are supported for precise seeking.
+- Output buffering and gzip compression are disabled to stream data in 64 KB chunks.
+
+### Mode 2: `static` (High-Concurrency Direct Serving)
+- Playlist rewrites segment URLs to direct web paths `/media/hls/<hls_dir>/segment_N.ts`.
+- Segments are served directly by Apache without invoking PHP workers.
+- Trade-off: Segment requests bypass per-chunk PHP auth checks, but all segments remain AES-128 encrypted and cannot be decrypted without the gated key from `/api/video_key.php`.
+
+### Shared Hosting Capacity and Load Testing
+- Hostinger shared hosting environments enforce concurrent PHP process limits (typically 20 to 30 simultaneous workers).
+- In `php` mode, multiple students watching 6-second segments simultaneously can saturate the PHP worker pool.
+- A load test with 10 simultaneous students is required before running large-scale live cohorts.
+- If worker saturation or HTTP 503/508 errors occur during high concurrency, switch `video.segments_mode` to `static` in `config.local.php`.
