@@ -75,22 +75,63 @@ try {
     $end = $filesize - 1;
     $is_range = false;
 
-    // Check for HTTP Range requests
+    // Strict HTTP Range handling conforming to RFC 9110
     if (isset($_SERVER['HTTP_RANGE'])) {
-        if (preg_match('/bytes=\h*(\d+)-(\d*)[\D.*]?/i', $_SERVER['HTTP_RANGE'], $matches)) {
-            $start = (int)$matches[1];
-            if (!empty($matches[2])) {
-                $end = (int)$matches[2];
-            }
-            if ($start > $end || $start >= $filesize) {
+        $range_header = trim($_SERVER['HTTP_RANGE']);
+        // Reject multi-range requests (multipart/byteranges)
+        if (str_contains($range_header, ',')) {
+            http_response_code(416);
+            header("Content-Range: bytes */{$filesize}");
+            exit;
+        }
+
+        if (preg_match('/^bytes=\s*(\d*)\s*-\s*(\d*)$/i', $range_header, $matches)) {
+            $raw_start = $matches[1];
+            $raw_end = $matches[2];
+
+            if ($raw_start === '' && $raw_end === '') {
                 http_response_code(416);
                 header("Content-Range: bytes */{$filesize}");
                 exit;
-            }
-            if ($end >= $filesize) {
+            } elseif ($raw_start === '') {
+                // Suffix range (e.g. bytes=-500)
+                $suffix_len = (int)$raw_end;
+                if ($suffix_len <= 0) {
+                    http_response_code(416);
+                    header("Content-Range: bytes */{$filesize}");
+                    exit;
+                }
+                $start = max(0, $filesize - $suffix_len);
                 $end = $filesize - 1;
+                $is_range = true;
+            } elseif ($raw_end === '') {
+                // Open-ended range (e.g. bytes=100-)
+                $start = (int)$raw_start;
+                $end = $filesize - 1;
+                if ($start >= $filesize) {
+                    http_response_code(416);
+                    header("Content-Range: bytes */{$filesize}");
+                    exit;
+                }
+                $is_range = true;
+            } else {
+                // Explicit bounded range (e.g. bytes=0-99, bytes=0-0)
+                $start = (int)$raw_start;
+                $end = (int)$raw_end;
+                if ($start > $end || $start >= $filesize) {
+                    http_response_code(416);
+                    header("Content-Range: bytes */{$filesize}");
+                    exit;
+                }
+                if ($end >= $filesize) {
+                    $end = $filesize - 1;
+                }
+                $is_range = true;
             }
-            $is_range = true;
+        } else {
+            http_response_code(416);
+            header("Content-Range: bytes */{$filesize}");
+            exit;
         }
     }
 
@@ -108,6 +149,7 @@ try {
     header('Accept-Ranges: bytes');
     header('Content-Type: video/mp2t');
     header('Cache-Control: private, max-age=3600');
+    header('X-Content-Type-Options: nosniff');
 
     if ($is_range) {
         http_response_code(206);
@@ -126,6 +168,9 @@ try {
         $bytes_left = $length;
         $chunk_size = 65536; // 64 KB
         while (!feof($fp) && $bytes_left > 0) {
+            if (connection_aborted()) {
+                break;
+            }
             $read_len = min($chunk_size, $bytes_left);
             $buffer = fread($fp, $read_len);
             if ($buffer === false) {
