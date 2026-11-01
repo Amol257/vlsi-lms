@@ -124,3 +124,4 @@ CREATE POLICY "Full access progress" ON public.lms_lecture_progress FOR ALL USIN
 CREATE POLICY "Public read announcements" ON public.lms_announcements FOR SELECT USING (true);
 CREATE POLICY "Full access enrolments" ON public.lms_enrolments FOR ALL USING (true);
 CREATE POLICY "Full access audit logs" ON public.lms_audit_logs FOR ALL USING (true);
+
