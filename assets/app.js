@@ -54,7 +54,7 @@
       var res = window.LMS.updateLectureProgress(lectureId, pos, Math.floor(player.duration || 0), event);
       var note = document.getElementById('progressNote');
       if (res && res.ok && note) {
-        note.textContent = ' · ' + (res.completed ? 'Completed ✓' : res.percent + '% watched');
+        note.textContent = ' - ' + (res.completed ? 'Completed ✓' : res.percent + '% watched');
       }
     };
 
@@ -79,7 +79,7 @@
         markDoneWrap.classList.add('done');
         markBtn.textContent = '✓ Watched';
         var note = document.getElementById('progressNote');
-        if (note) note.textContent = ' · Completed ✓';
+        if (note) note.textContent = ' - Completed ✓';
       });
     }
   }

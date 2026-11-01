@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/../db.php';
 $admin = require_role(['admin']);
 $pdo = get_db();
@@ -64,7 +64,7 @@ if (!$lec) {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Review: <?= htmlspecialchars($lec['title']) ?> · VLSI LMS</title>
+<title>Review: <?= htmlspecialchars($lec['title']) ?> - VLSI LMS</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="../assets/style.css">
