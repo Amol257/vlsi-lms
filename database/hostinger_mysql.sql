@@ -1,4 +1,4 @@
-﻿-- ==============================================================================
+-- ==============================================================================
 -- VLSI LMS : HOSTINGER MySQL DATABASE SCHEMA & SEED DATA
 -- Import this file directly into Hostinger phpMyAdmin (SQL tab)
 -- ==============================================================================
@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS `lms_lectures` (
   `teacher_name` varchar(128) DEFAULT 'Staff Instructor',
   `title` varchar(255) NOT NULL,
   `description` text DEFAULT NULL,
-  `video_type` enum('youtube','vimeo','url','file') DEFAULT 'youtube',
+  `video_type` enum('youtube','vimeo','url','file','hls') DEFAULT 'youtube',
   `video_url` text NOT NULL,
   `duration_seconds` int(11) DEFAULT 3600,
   `notes_url` text DEFAULT NULL,
@@ -125,11 +125,33 @@ CREATE TABLE IF NOT EXISTS `lms_audit_logs` (
   PRIMARY KEY (`id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- 9. Active Sessions Table (Student Single Device Concurrency)
+CREATE TABLE IF NOT EXISTS `lms_active_session` (
+  `user_id` int(11) NOT NULL,
+  `session_id` varchar(128) NOT NULL,
+  `ip` varchar(64) NOT NULL,
+  `user_agent` text DEFAULT NULL,
+  `last_seen` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`user_id`),
+  KEY `idx_active_last_seen` (`last_seen`),
+  CONSTRAINT `fk_active_user` FOREIGN KEY (`user_id`) REFERENCES `lms_users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 10. Rate Limits Table
+CREATE TABLE IF NOT EXISTS `rate_limits` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `action` varchar(64) NOT NULL,
+  `identifier` varchar(191) NOT NULL,
+  `hits` int(11) NOT NULL DEFAULT 1,
+  `first_hit_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `reset_at` timestamp NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `idx_action_id` (`action`, `identifier`),
+  KEY `idx_reset_at` (`reset_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- ==============================================================================
 -- PRE-SEEDED SEED DATA
--- Default Passwords:
--- admin@lms.local / Admin@123 -> $2y$10$w4r.kL4kO1Rk0V7Zz6i.2.Z6qX0rN7x7U7H3mZ8/nKq1X9W6O3Gmi
--- Pass@123 for teacher & student
 -- ==============================================================================
 
 INSERT INTO `lms_courses` (`id`, `code`, `title`, `duration`, `description`, `status`) VALUES
@@ -152,10 +174,6 @@ INSERT INTO `lms_batches` (`id`, `course_id`, `code`, `name`, `schedule`, `statu
 (2, 2, 'DV-FALL-2026', 'DV Cohort 04 (Evening)', 'Mon/Wed/Fri 7 PM - 9 PM IST', 'active')
 ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
 
--- Default users with bcrypt hashes:
--- admin@lms.local / Admin@123
--- teacher@vlsiinsights.com / Pass@123
--- student@example.com / Pass@123
 INSERT INTO `lms_users` (`id`, `name`, `email`, `password_hash`, `role`, `batch_id`) VALUES
 (1, 'Super Admin', 'admin@lms.local', '$2y$10$f6h.wzO6K6v5M8PZgK4CieYc1C0R0.fM9f.J3M1h7xQ7m2aJ0Y0Z6', 'admin', NULL),
 (2, 'Sanjay Deshmukh', 'teacher@vlsiinsights.com', '$2y$10$f6h.wzO6K6v5M8PZgK4CieYc1C0R0.fM9f.J3M1h7xQ7m2aJ0Y0Z6', 'teacher', 1),
