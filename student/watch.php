@@ -1,5 +1,7 @@
 <?php
 require_once __DIR__ . '/../db.php';
+require_once __DIR__ . '/../includes/video_helper.php';
+
 $student = require_role(['student', 'admin', 'teacher']);
 $pdo = get_db();
 
@@ -11,38 +13,51 @@ $playlist_url = '';
 $all_videos = [];
 
 if ($pdo && $video_id > 0) {
-    try {
-        $stmt = $pdo->prepare("SELECT v.*, p.title as program_title, p.slug as program_slug 
-            FROM videos v 
-            JOIN programs p ON v.program_id = p.id 
-            WHERE v.id = ? LIMIT 1");
-        $stmt->execute([$video_id]);
-        $video = $stmt->fetch();
+    // 1. Shared access check: Enforces admin/teacher allowance, video approved status, trial or active enrollment
+    $access = lms_check_video_access($student, $video_id, $pdo);
+    if ($access['allowed'] && !empty($access['video'])) {
+        $video = $access['video'];
+        $program = [
+            'title' => $video['program_title'],
+            'slug' => $video['program_slug']
+        ];
 
-        if ($video) {
-            $program = [
-                'title' => $video['program_title'],
-                'slug' => $video['program_slug']
-            ];
-
-            // Check previous playback position
+        // Check previous playback position
+        try {
             $prog_stmt = $pdo->prepare("SELECT position_sec, completed FROM video_progress WHERE user_id = ? AND video_id = ? LIMIT 1");
             $prog_stmt->execute([$student['id'], $video_id]);
             $progress = $prog_stmt->fetch();
 
-            // Load other videos in same program
-            $list_stmt = $pdo->prepare("SELECT id, title, duration_sec, is_trial FROM videos WHERE program_id = ? AND status = 'approved' ORDER BY id ASC");
-            $list_stmt->execute([$video['program_id']]);
+            // Determine if student has full program enrollment to filter curriculum sidebar
+            $is_enrolled = false;
+            if ($student['role'] === 'admin' || $student['role'] === 'teacher') {
+                $is_enrolled = true;
+            } else {
+                $enr_check = $pdo->prepare("SELECT id FROM enrollments WHERE user_id = ? AND program_id = ? AND status = 'active' AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1");
+                $enr_check->execute([$student['id'], $video['program_id']]);
+                if ($enr_check->fetch()) {
+                    $is_enrolled = true;
+                }
+            }
+
+            // Curriculum sidebar: Enrolled users see all approved videos; non-enrolled users see only trial previews
+            if ($is_enrolled) {
+                $list_stmt = $pdo->prepare("SELECT id, title, duration_sec, is_trial FROM videos WHERE program_id = ? AND status = 'approved' ORDER BY id ASC");
+                $list_stmt->execute([$video['program_id']]);
+            } else {
+                $list_stmt = $pdo->prepare("SELECT id, title, duration_sec, is_trial FROM videos WHERE program_id = ? AND status = 'approved' AND is_trial = 1 ORDER BY id ASC");
+                $list_stmt->execute([$video['program_id']]);
+            }
             $all_videos = $list_stmt->fetchAll();
 
             $playlist_url = "/api/video_playlist.php?id=" . $video_id;
+        } catch (PDOException $e) {
+            error_log("Watch page fetch error: " . $e->getMessage());
         }
-    } catch (PDOException $e) {
-        error_log("Watch page load error: " . $e->getMessage());
     }
 }
 
-// Clean 404 response if video does not exist: no demo or fallback data in production paths
+// Clean 404 response if video does not exist or access is denied: no demo or fallback data in production paths
 if (!$video) {
     http_response_code(404);
     ?>
@@ -178,7 +193,7 @@ $hidden_pause_sec = (int)lms_config('player.hidden_pause_seconds', 60);
             <!-- Friendly Player Error Overlay -->
             <div id="playerErrorOverlay" class="player-error-overlay">
               <p id="playerErrorText" style="font-size: 15px; margin-bottom: 16px; color: #fca5a5; max-width: 460px; line-height: 1.5;"></p>
-              <button type="button" class="btn btn-sm btn-primary" onclick="location.reload()">Reload Player</button>
+              <button type="button" class="btn btn-sm btn-primary" id="btnReloadPlayer">Reload Player</button>
             </div>
           </div>
 
@@ -319,8 +334,18 @@ const VideoProvider = {
       });
 
       this.hlsInstance.on(Hls.Events.ERROR, (event, data) => {
-        // Detect HTTP 403 on key or segment request
         const httpStatus = data.response?.code || data.response?.status;
+
+        // Displaced session (HTTP 401) immediately halts playback and redirects
+        if (httpStatus === 401) {
+          if (this.hlsInstance) {
+            this.hlsInstance.destroy();
+          }
+          window.location.href = '/login.php?reason=other-device';
+          return;
+        }
+
+        // Detect HTTP 403 on key or segment request
         const is403 = (httpStatus === 403) || 
                       (data.details === Hls.ErrorDetails.KEY_LOAD_ERROR && httpStatus === 403) ||
                       (data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR && httpStatus === 403);
@@ -377,6 +402,12 @@ const videoEl = document.getElementById('lmsVideo');
 const playlistUrl = <?= json_encode($playlist_url) ?>;
 const resumeSeconds = <?= (int)$resume_pos ?>;
 const videoId = <?= (int)$video['id'] ?>;
+const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+
+// Attach reload listener for error overlay without inline onclick
+document.getElementById('btnReloadPlayer')?.addEventListener('click', () => {
+  location.reload();
+});
 
 // Initialize Player via Provider Interface
 VideoProvider.init(videoEl, playlistUrl, resumeSeconds);
@@ -402,6 +433,9 @@ let hiddenTimer = null;
 
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
+    // Send latest progress snapshot when tab is hidden
+    sendProgress(Math.floor(videoEl.currentTime || 0), Math.floor(videoEl.duration || 0), false);
+
     if (hiddenPauseSeconds > 0) {
       hiddenTimer = setTimeout(() => {
         if (!videoEl.paused) {
@@ -419,36 +453,79 @@ document.addEventListener('visibilitychange', () => {
 
 // Periodic progress recording (every 10 seconds)
 let lastProgressTime = 0;
+let consecutivePlaySeconds = 0;
+
 videoEl.addEventListener('timeupdate', () => {
-  const current = Math.floor(videoEl.currentTime);
-  if (current - lastProgressTime >= 10) {
+  const current = Math.floor(videoEl.currentTime || 0);
+
+  // Reset 403 recovery allowance after 120 seconds of continuous playback
+  if (!videoEl.paused) {
+    consecutivePlaySeconds++;
+    if (consecutivePlaySeconds >= 120) {
+      VideoProvider.hasRecovered403 = false;
+      consecutivePlaySeconds = 0;
+    }
+  }
+
+  if (Math.abs(current - lastProgressTime) >= 10) {
     lastProgressTime = current;
     sendProgress(current, Math.floor(videoEl.duration || 0), false);
   }
 });
 
-videoEl.addEventListener('ended', () => {
-  sendProgress(Math.floor(videoEl.duration), Math.floor(videoEl.duration), true);
-  document.getElementById('statusIndicator').innerHTML = '<span class="badge badge-green">Watched</span>';
+// Reset lastProgressTime when seeking backwards
+videoEl.addEventListener('seeking', () => {
+  if (videoEl.currentTime < lastProgressTime) {
+    lastProgressTime = Math.floor(videoEl.currentTime);
+  }
 });
 
+// Progress on pause
+videoEl.addEventListener('pause', () => {
+  sendProgress(Math.floor(videoEl.currentTime || 0), Math.floor(videoEl.duration || 0), false);
+});
+
+// Progress on video completed
+videoEl.addEventListener('ended', () => {
+  sendProgress(Math.floor(videoEl.duration || 0), Math.floor(videoEl.duration || 0), true);
+  const statusEl = document.getElementById('statusIndicator');
+  if (statusEl) {
+    statusEl.innerHTML = '<span class="badge badge-green">Watched</span>';
+  }
+});
+
+// Asynchronous Progress Dispatcher with CSRF protection
 async function sendProgress(pos, dur, completed) {
   try {
     const fd = new FormData();
     fd.append('video_id', videoId);
     fd.append('position_sec', pos);
     fd.append('duration_sec', dur);
+    fd.append('csrf_token', csrfToken);
     if (completed) fd.append('completed', 1);
 
     await fetch('/api/video_progress.php', {
       method: 'POST',
       body: fd,
+      headers: {
+        'X-CSRF-Token': csrfToken
+      },
       credentials: 'same-origin'
     });
   } catch (err) {
     // Silently continue
   }
 }
+
+// Beacon dispatch on window pagehide / unload
+window.addEventListener('pagehide', () => {
+  const fd = new FormData();
+  fd.append('video_id', videoId);
+  fd.append('position_sec', Math.floor(videoEl.currentTime || 0));
+  fd.append('duration_sec', Math.floor(videoEl.duration || 0));
+  fd.append('csrf_token', csrfToken);
+  navigator.sendBeacon('/api/video_progress.php', fd);
+});
 </script>
 </body>
 </html>

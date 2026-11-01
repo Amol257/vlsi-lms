@@ -21,44 +21,13 @@ if (!$pdo) {
 }
 
 try {
-    $stmt = $pdo->prepare("SELECT * FROM videos WHERE id = ? LIMIT 1");
-    $stmt->execute([$video_id]);
-    $video = $stmt->fetch();
-
-    if (!$video) {
-        http_response_code(404);
-        die("Video not found.");
-    }
-
-    // Require published/approved status for students (admins and teachers exempt)
-    if ($user['role'] === 'student') {
-        if (!in_array($video['status'], ['approved', 'published'], true)) {
-            http_response_code(403);
-            die("Forbidden: Video is not published.");
-        }
-    }
-
-    // Access authorization check
-    $allowed = false;
-    if ($user['role'] === 'admin' || $user['role'] === 'teacher') {
-        $allowed = true;
-    } elseif (!empty($video['is_trial'])) {
-        $allowed = true;
-    } else {
-        // Check active enrollment in program
-        $enroll_stmt = $pdo->prepare("SELECT id FROM enrollments 
-            WHERE user_id = ? AND program_id = ? AND status = 'active' 
-            AND (expires_at IS NULL OR expires_at > NOW()) LIMIT 1");
-        $enroll_stmt->execute([$user['id'], $video['program_id']]);
-        if ($enroll_stmt->fetch()) {
-            $allowed = true;
-        }
-    }
-
-    if (!$allowed) {
+    $access = lms_check_video_access($user, $video_id, $pdo);
+    if (!$access['allowed'] || !$access['video']) {
         http_response_code(403);
-        die("Forbidden: An active program enrollment is required to watch this video.");
+        header('X-Content-Type-Options: nosniff');
+        die("Forbidden: Access denied or program enrollment required.");
     }
+    $video = $access['video'];
 
     // Locate index.m3u8 on disk
     $storage_base = lms_get_video_storage_dir();

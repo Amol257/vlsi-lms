@@ -5,6 +5,7 @@ require_once __DIR__ . '/../includes/video_helper.php';
 $user = auth_user();
 if (!$user) {
     http_response_code(401);
+    header('X-Content-Type-Options: nosniff');
     die("Unauthorized.");
 }
 
@@ -14,50 +15,83 @@ $token = trim($_GET['t'] ?? '');
 
 if ($video_id <= 0 || empty($segment) || empty($token)) {
     http_response_code(400);
-    die("Bad request: Missing parameters.");
+    header('X-Content-Type-Options: nosniff');
+    die("Bad request.");
 }
 
 // Verify valid segment naming format (e.g. segment_0001.ts)
 if (!preg_match('/^segment_\d+\.ts$/i', $segment)) {
     http_response_code(400);
+    header('X-Content-Type-Options: nosniff');
     die("Invalid segment file specification.");
 }
 
 // Verify timed HMAC token bound to user and video
 if (!lms_verify_key_token($token, $user['id'], $video_id)) {
     http_response_code(403);
-    die("Forbidden: Expired or invalid token.");
+    header('X-Content-Type-Options: nosniff');
+    die("Access denied.");
 }
 
 $pdo = get_db();
 if (!$pdo) {
     http_response_code(500);
+    header('X-Content-Type-Options: nosniff');
     die("Database error.");
 }
 
-// Single session check for students
-if ($user['role'] === 'student') {
-    $current_sid = session_id();
-    $sess_stmt = $pdo->prepare("SELECT session_id FROM lms_active_session WHERE user_id = ? LIMIT 1");
-    $sess_stmt->execute([$user['id']]);
-    $active = $sess_stmt->fetch();
+// 5-minute cached access recheck: verifies enrollment/status before releasing session lock
+$sess_cache_key = "video_access_{$video_id}";
+$last_access_check = $_SESSION[$sess_cache_key] ?? 0;
+$now = time();
 
-    if (!$active || $active['session_id'] !== $current_sid) {
-        http_response_code(401);
-        die("Session displaced by another active login.");
+if (($now - $last_access_check) > 300) {
+    $access = lms_check_video_access($user, $video_id, $pdo);
+    if (!$access['allowed']) {
+        http_response_code(403);
+        header('X-Content-Type-Options: nosniff');
+        die("Access denied.");
     }
+    $_SESSION[$sess_cache_key] = $now;
+}
+
+// Single joined query for student session + video lookup (admins/teachers skip session join)
+$video = null;
+try {
+    if ($user['role'] === 'student') {
+        $current_sid = session_id();
+        $stmt = $pdo->prepare("SELECT v.id, v.hls_dir, s.session_id 
+            FROM videos v 
+            LEFT JOIN lms_active_session s ON s.user_id = ? 
+            WHERE v.id = ? LIMIT 1");
+        $stmt->execute([$user['id'], $video_id]);
+        $row = $stmt->fetch();
+
+        if (!$row || empty($row['session_id']) || $row['session_id'] !== $current_sid) {
+            http_response_code(401);
+            header('X-Content-Type-Options: nosniff');
+            die("Session displaced.");
+        }
+        $video = $row;
+    } else {
+        $stmt = $pdo->prepare("SELECT id, hls_dir FROM videos WHERE id = ? LIMIT 1");
+        $stmt->execute([$video_id]);
+        $video = $stmt->fetch();
+    }
+} catch (PDOException $e) {
+    error_log("Segment query error: " . $e->getMessage());
+    http_response_code(500);
+    header('X-Content-Type-Options: nosniff');
+    die("Internal server error.");
 }
 
 // Release session lock immediately so parallel segment downloads do not stall PHP sessions
 session_write_close();
 
 try {
-    $stmt = $pdo->prepare("SELECT hls_dir FROM videos WHERE id = ? LIMIT 1");
-    $stmt->execute([$video_id]);
-    $video = $stmt->fetch();
-
     if (!$video) {
         http_response_code(404);
+        header('X-Content-Type-Options: nosniff');
         die("Video not found.");
     }
 
