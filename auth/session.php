@@ -105,25 +105,6 @@ if (!$pdo) {
 }
 
 try {
-    // Check if lms_users has supabase_uid column; if not, add it
-    $col_check = $pdo->query("SHOW COLUMNS FROM `lms_users` LIKE 'supabase_uid'");
-    if ($col_check->rowCount() === 0) {
-        $pdo->exec("ALTER TABLE `lms_users` ADD COLUMN `supabase_uid` varchar(64) DEFAULT NULL AFTER `id`");
-        $pdo->exec("ALTER TABLE `lms_users` ADD UNIQUE KEY `idx_user_supabase_uid` (`supabase_uid`)");
-    }
-
-    // Check last_login_at column
-    $col_check2 = $pdo->query("SHOW COLUMNS FROM `lms_users` LIKE 'last_login_at'");
-    if ($col_check2->rowCount() === 0) {
-        $pdo->exec("ALTER TABLE `lms_users` ADD COLUMN `last_login_at` timestamp NULL DEFAULT NULL");
-    }
-
-    // Check password_hash nullable
-    $pdo->exec("ALTER TABLE `lms_users` MODIFY COLUMN `password_hash` varchar(255) DEFAULT NULL");
-
-    // Check status enum includes blocked
-    $pdo->exec("ALTER TABLE `lms_users` MODIFY COLUMN `status` enum('active','blocked','suspended') NOT NULL DEFAULT 'active'");
-
     // Find existing user by supabase_uid or email
     $stmt = $pdo->prepare("SELECT id, supabase_uid, name, email, role, batch_id, status FROM lms_users WHERE supabase_uid = ? OR email = ? LIMIT 1");
     $stmt->execute([$supabase_uid, $email]);
@@ -158,17 +139,6 @@ try {
 
     // 9. Single Active Session Check for Students (Phase 2 Concurrency Gate)
     if ($role === 'student') {
-        // Ensure table lms_active_session exists
-        $pdo->exec("CREATE TABLE IF NOT EXISTS `lms_active_session` (
-            `user_id` int(11) NOT NULL,
-            `session_id` varchar(128) NOT NULL,
-            `ip` varchar(64) NOT NULL,
-            `user_agent` text DEFAULT NULL,
-            `last_seen` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            PRIMARY KEY (`user_id`),
-            KEY `idx_last_seen` (`last_seen`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
         $pdo->beginTransaction();
         $sess_stmt = $pdo->prepare("SELECT session_id, ip, last_seen FROM lms_active_session WHERE user_id = ? FOR UPDATE");
         $sess_stmt->execute([$user_id]);
