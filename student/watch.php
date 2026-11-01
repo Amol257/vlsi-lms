@@ -42,22 +42,35 @@ if ($pdo && $video_id > 0) {
     }
 }
 
-// Fallback sample if no DB video selected yet
+// Clean 404 response if video does not exist: no demo or fallback data in production paths
 if (!$video) {
-    $video = [
-        'id' => 1,
-        'title' => 'Introduction to Physical Design and Tapeout Flow',
-        'description' => 'Comprehensive walkthrough of netlist to GDSII synthesis, floorplan partitioning, and timing signoff constraints.',
-        'duration_sec' => 3600,
-        'is_trial' => 1,
-        'program_title' => 'Physical Design Masterclass'
-    ];
-    $all_videos = [$video];
-    $playlist_url = "/api/video_playlist.php?id=1";
+    http_response_code(404);
+    ?>
+    <!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>Video Not Found - VLSI LMS</title>
+      <link rel="stylesheet" href="/assets/style.css">
+    </head>
+    <body class="role-student">
+      <div style="min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px;">
+        <div class="card" style="max-width: 480px; text-align: center; padding: 32px;">
+          <h2 style="margin-bottom: 12px;">404: Video Not Found</h2>
+          <p style="color: var(--muted); margin-bottom: 24px;">The requested video lecture does not exist, has been unpublished, or is unavailable.</p>
+          <a href="/student/index.php" class="btn btn-primary">Return to Dashboard</a>
+        </div>
+      </div>
+    </body>
+    </html>
+    <?php
+    exit;
 }
 
 $client_ip = get_client_ip();
 $resume_pos = !empty($progress['position_sec']) ? (int)$progress['position_sec'] : 0;
+$hidden_pause_sec = (int)lms_config('player.hidden_pause_seconds', 60);
 ?>
 <!doctype html>
 <html lang="en">
@@ -99,6 +112,19 @@ $resume_pos = !empty($progress['position_sec']) ? (int)$progress['position_sec']
   z-index: 10;
   transition: top 1s ease-in-out, left 1s ease-in-out;
 }
+.player-error-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.92);
+  z-index: 20;
+  color: #fff;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 24px;
+  text-align: center;
+}
 </style>
 </head>
 <body class="role-student">
@@ -113,9 +139,9 @@ $resume_pos = !empty($progress['position_sec']) ? (int)$progress['position_sec']
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
         <span>My Batches</span>
       </a>
-      <a href="/student/player.php" class="on">
+      <a href="/student/programs.php">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        <span>Lecture Player</span>
+        <span>Programs</span>
       </a>
       <a href="/student/webinars.php">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 10l5-5v14l-5-5M4 6h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/></svg>
@@ -148,6 +174,11 @@ $resume_pos = !empty($progress['position_sec']) ? (int)$progress['position_sec']
             <!-- Watermark Overlay -->
             <div id="watermark" class="security-watermark">
               <?= h($student['email']) ?> | <?= h($client_ip) ?> | <span id="watermarkClock"></span>
+            </div>
+            <!-- Friendly Player Error Overlay -->
+            <div id="playerErrorOverlay" class="player-error-overlay">
+              <p id="playerErrorText" style="font-size: 15px; margin-bottom: 16px; color: #fca5a5; max-width: 460px; line-height: 1.5;"></p>
+              <button type="button" class="btn btn-sm btn-primary" onclick="location.reload()">Reload Player</button>
             </div>
           </div>
 
@@ -210,8 +241,65 @@ $resume_pos = !empty($progress['position_sec']) ? (int)$progress['position_sec']
 const VideoProvider = {
   type: 'hls_aes128',
   hlsInstance: null,
+  networkRetryCount: 0,
+  maxNetworkRetries: 3,
+  retryDelayMs: 1500,
+  hasRecovered403: false,
+  isReloading403: false,
+
+  showPlayerError(message) {
+    const errorOverlay = document.getElementById('playerErrorOverlay');
+    const errorText = document.getElementById('playerErrorText');
+    if (errorOverlay && errorText) {
+      errorText.textContent = message;
+      errorOverlay.style.display = 'flex';
+    } else {
+      alert(message);
+    }
+  },
+
+  hidePlayerError() {
+    const errorOverlay = document.getElementById('playerErrorOverlay');
+    if (errorOverlay) {
+      errorOverlay.style.display = 'none';
+    }
+  },
+
+  async handle403Recovery(videoEl, sourceUrl) {
+    if (this.hasRecovered403 || this.isReloading403) {
+      this.showPlayerError('Playback authorization expired or access was revoked. Please refresh the page or check your program enrollment.');
+      if (this.hlsInstance) {
+        this.hlsInstance.destroy();
+      }
+      return;
+    }
+
+    this.isReloading403 = true;
+    this.hasRecovered403 = true;
+    const resumeTime = Math.max(0, videoEl.currentTime || 0);
+
+    try {
+      const sep = sourceUrl.includes('?') ? '&' : '?';
+      const refreshUrl = sourceUrl + sep + '_r=' + Date.now();
+      const res = await fetch(refreshUrl, { credentials: 'same-origin' });
+      if (!res.ok) {
+        throw new Error('Failed to refresh playlist: HTTP ' + res.status);
+      }
+
+      if (this.hlsInstance) {
+        this.hlsInstance.destroy();
+      }
+
+      this.init(videoEl, refreshUrl, resumeTime);
+      this.isReloading403 = false;
+    } catch (e) {
+      this.isReloading403 = false;
+      this.showPlayerError('Unable to renew playback session. Please sign in again or reload the page.');
+    }
+  },
 
   init(videoEl, sourceUrl, startSeconds) {
+    this.hidePlayerError();
     if (Hls.isSupported()) {
       this.hlsInstance = new Hls({
         debug: false,
@@ -224,18 +312,44 @@ const VideoProvider = {
       this.hlsInstance.attachMedia(videoEl);
 
       this.hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+        this.networkRetryCount = 0;
         if (startSeconds > 5) {
           videoEl.currentTime = startSeconds;
         }
       });
 
       this.hlsInstance.on(Hls.Events.ERROR, (event, data) => {
+        // Detect HTTP 403 on key or segment request
+        const httpStatus = data.response?.code || data.response?.status;
+        const is403 = (httpStatus === 403) || 
+                      (data.details === Hls.ErrorDetails.KEY_LOAD_ERROR && httpStatus === 403) ||
+                      (data.details === Hls.ErrorDetails.FRAG_LOAD_ERROR && httpStatus === 403);
+
+        if (is403) {
+          this.handle403Recovery(videoEl, sourceUrl);
+          return;
+        }
+
         if (data.fatal) {
-          console.error('Fatal streaming error:', data);
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-            this.hlsInstance.startLoad();
+            if (this.networkRetryCount < this.maxNetworkRetries) {
+              this.networkRetryCount++;
+              setTimeout(() => {
+                if (this.hlsInstance) {
+                  this.hlsInstance.startLoad();
+                }
+              }, this.retryDelayMs);
+            } else {
+              this.showPlayerError('A network error occurred while streaming video segments. Please check your internet connection.');
+              if (this.hlsInstance) {
+                this.hlsInstance.destroy();
+              }
+            }
           } else {
-            this.hlsInstance.destroy();
+            this.showPlayerError('A playback error occurred. Please try reloading the player.');
+            if (this.hlsInstance) {
+              this.hlsInstance.destroy();
+            }
           }
         }
       });
@@ -245,6 +359,9 @@ const VideoProvider = {
         if (startSeconds > 5) {
           videoEl.currentTime = startSeconds;
         }
+      });
+      videoEl.addEventListener('error', () => {
+        this.showPlayerError('Error loading video stream on your browser.');
       });
     }
   },
@@ -264,14 +381,13 @@ const videoId = <?= (int)$video['id'] ?>;
 // Initialize Player via Provider Interface
 VideoProvider.init(videoEl, playlistUrl, resumeSeconds);
 
-// Watermark Jitter & Clock
+// Watermark Jitter and Clock
 function updateWatermark() {
   const wm = document.getElementById('watermark');
   const clock = document.getElementById('watermarkClock');
   const now = new Date();
   clock.textContent = now.toLocaleTimeString();
 
-  // Random coordinates within video bounding box
   const topPercent = Math.floor(Math.random() * 70) + 10;
   const leftPercent = Math.floor(Math.random() * 50) + 10;
   wm.style.top = topPercent + '%';
@@ -280,15 +396,24 @@ function updateWatermark() {
 setInterval(updateWatermark, 20000);
 updateWatermark();
 
-// Anti-piracy: Pause on window blur or tab hide
+// Anti-piracy: Tab hidden timer (pause only when tab has been hidden for configured seconds)
+const hiddenPauseSeconds = <?= (int)$hidden_pause_sec ?>;
+let hiddenTimer = null;
+
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden && !videoEl.paused) {
-    videoEl.pause();
-  }
-});
-window.addEventListener('blur', () => {
-  if (!videoEl.paused) {
-    videoEl.pause();
+  if (document.hidden) {
+    if (hiddenPauseSeconds > 0) {
+      hiddenTimer = setTimeout(() => {
+        if (!videoEl.paused) {
+          videoEl.pause();
+        }
+      }, hiddenPauseSeconds * 1000);
+    }
+  } else {
+    if (hiddenTimer) {
+      clearTimeout(hiddenTimer);
+      hiddenTimer = null;
+    }
   }
 });
 
