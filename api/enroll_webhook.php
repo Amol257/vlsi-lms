@@ -3,6 +3,7 @@ require_once __DIR__ . '/../db.php';
 
 header('Content-Type: application/json; charset=utf-8');
 
+$client_ip = get_client_ip();
 $raw_body = file_get_contents('php://input');
 $signature = $_SERVER['HTTP_X_SIGNATURE'] ?? '';
 $timestamp = $_SERVER['HTTP_X_TIMESTAMP'] ?? ($_SERVER['HTTP_X_SIGNATURE_TIMESTAMP'] ?? '');
@@ -10,38 +11,57 @@ $secret = lms_config('enrollment.webhook_secret', '');
 
 if (empty($secret)) {
     http_response_code(500);
-    echo json_encode(['error' => 'Webhook secret not configured on server.']);
+    echo json_encode(['error' => 'Webhook service is not configured.']);
     exit;
 }
 
+// 1. Validate Timestamp Presence and Formatting
 if (empty($timestamp) || !is_numeric($timestamp)) {
-    http_response_code(400);
-    echo json_encode(['error' => 'Missing or invalid HTTP_X_TIMESTAMP header.']);
+    lms_audit_log(0, 'enroll_webhook_rejected', 'webhook', null, [
+        'reason' => 'missing_or_invalid_timestamp',
+        'ip' => $client_ip
+    ]);
+    http_response_code(401);
+    echo json_encode(['error' => 'Unauthorized: Missing or invalid timestamp header.']);
     exit;
 }
 
-// Reject timestamps older than 5 minutes (300 seconds) or excessive future skew
+// 2. Reject Timestamps older than 5 minutes (300 seconds) or excessive future skew
 $now = time();
 $ts = (int)$timestamp;
 if (abs($now - $ts) > 300) {
-    http_response_code(400);
-    echo json_encode(['error' => 'Webhook timestamp expired or clock skew exceeded 5 minutes.']);
+    lms_audit_log(0, 'enroll_webhook_rejected', 'webhook', null, [
+        'reason' => 'timestamp_expired',
+        'time_skew' => abs($now - $ts),
+        'ip' => $client_ip
+    ]);
+    http_response_code(401);
+    echo json_encode(['error' => 'Unauthorized: Webhook timestamp expired or skew exceeded 5 minutes.']);
     exit;
 }
 
+// 3. Validate Body and Signature Presence
 if (empty($signature) || empty($raw_body)) {
-    http_response_code(400);
-    echo json_encode(['error' => 'Missing signature or payload body.']);
+    lms_audit_log(0, 'enroll_webhook_rejected', 'webhook', null, [
+        'reason' => 'missing_signature_or_body',
+        'ip' => $client_ip
+    ]);
+    http_response_code(401);
+    echo json_encode(['error' => 'Unauthorized: Missing signature or payload body.']);
     exit;
 }
 
-// Cryptographic signature check: sign timestamp . "." . body with HMAC-SHA256
+// 4. Verify Cryptographic HMAC Signature (Format: timestamp . "." . raw_body)
 $signed_payload = $timestamp . '.' . $raw_body;
 $expected = hash_hmac('sha256', $signed_payload, $secret);
 
 if (!hash_equals($expected, $signature)) {
-    http_response_code(403);
-    echo json_encode(['error' => 'Invalid cryptographic webhook signature.']);
+    lms_audit_log(0, 'enroll_webhook_rejected', 'webhook', null, [
+        'reason' => 'signature_mismatch',
+        'ip' => $client_ip
+    ]);
+    http_response_code(401);
+    echo json_encode(['error' => 'Unauthorized: Invalid webhook signature.']);
     exit;
 }
 
@@ -65,7 +85,7 @@ if (!$pdo) {
 }
 
 try {
-    // 1. Locate Program
+    // 5. Locate Program
     $prog_stmt = $pdo->prepare("SELECT id, title FROM programs WHERE slug = ? LIMIT 1");
     $prog_stmt->execute([$program_slug]);
     $program = $prog_stmt->fetch();
@@ -76,7 +96,7 @@ try {
         exit;
     }
 
-    // 2. Locate or create Student User
+    // 6. Locate or create Student User
     $user_stmt = $pdo->prepare("SELECT id, name FROM lms_users WHERE email = ? LIMIT 1");
     $user_stmt->execute([$email]);
     $user = $user_stmt->fetch();
@@ -91,7 +111,13 @@ try {
         $user_id = (int)$pdo->lastInsertId();
     }
 
-    // 3. Idempotent Grant Enrollment (UNIQUE user_id + program_id upsert)
+    // 7. Check if already enrolled to provide explicit idempotent feedback
+    $check_stmt = $pdo->prepare("SELECT id, status FROM enrollments WHERE user_id = ? AND program_id = ? LIMIT 1");
+    $check_stmt->execute([$user_id, $program['id']]);
+    $existing_enr = $check_stmt->fetch();
+    $already_enrolled = ($existing_enr && $existing_enr['status'] === 'active');
+
+    // 8. Idempotent Grant Enrollment (UNIQUE user_id + program_id upsert)
     $expires_at = date('Y-m-d H:i:s', time() + ($duration_days * 86400));
     $enroll_stmt = $pdo->prepare("INSERT INTO enrollments (user_id, program_id, status, source, starts_at, expires_at) 
         VALUES (?, ?, 'active', ?, NOW(), ?) 
@@ -101,11 +127,13 @@ try {
     lms_audit_log($user_id, 'external_enroll_webhook', 'enrollments', $program['id'], [
         'email' => $email,
         'program' => $program['title'],
+        'already_enrolled' => $already_enrolled,
         'source' => $source
     ]);
 
     echo json_encode([
         'success' => true,
+        'already_enrolled' => $already_enrolled,
         'user_id' => $user_id,
         'program_id' => $program['id'],
         'expires_at' => $expires_at
