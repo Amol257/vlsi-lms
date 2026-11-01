@@ -175,12 +175,56 @@ Because automated execution in this environment lacks a running PHP/MySQL server
 ---
 
 ### 14. Sensitive File Path Protection via .htaccess
-- **Objective**: Verify that direct web access to sensitive configuration files, SQL dumps, and storage directories is denied.
+- **Objective**: Verify that direct web access to sensitive configuration files, SQL dumps, version control internals, and storage directories is denied with HTTP 403 or 404.
 - **Status**: [NOT RUN: Requires live web server]
-- **Steps**:
-  1. `curl -I https://learn.vlsiinsights.com/config.local.php`
-  2. `curl -I https://learn.vlsiinsights.com/database/hostinger_mysql.sql`
-  3. `curl -I https://learn.vlsiinsights.com/lms_storage/`
-  4. `curl -I https://learn.vlsiinsights.com/media/incoming/`
-  5. `curl -I https://learn.vlsiinsights.com/docs/SECURITY.md`
-- **Pass Criteria**: Every request returns HTTP 403 Forbidden or 404 Not Found. Directory indexing is disabled (`Options -Indexes`).
+- **Verification Commands**:
+  ```bash
+  # Git internals protection
+  curl -I https://learn.vlsiinsights.com/.git/HEAD
+  # Configuration file protection
+  curl -I https://learn.vlsiinsights.com/config.local.php
+  curl -I https://learn.vlsiinsights.com/config.example.php
+  # Internal includes and source protection
+  curl -I https://learn.vlsiinsights.com/includes/bootstrap.php
+  curl -I https://learn.vlsiinsights.com/tools/package_video.sh
+  curl -I https://learn.vlsiinsights.com/scratch/
+  # Database schema files
+  curl -I https://learn.vlsiinsights.com/database/hostinger_mysql.sql
+  # Storage directories
+  curl -I https://learn.vlsiinsights.com/lms_storage/
+  curl -I https://learn.vlsiinsights.com/media/incoming/manifest.json
+  # Documentation files
+  curl -I https://learn.vlsiinsights.com/docs/SECURITY.md
+  # Check same paths on the MAIN domain (vlsiinsights.com) to confirm no docroot overlap
+  curl -I https://www.vlsiinsights.com/config.local.php
+  curl -I https://www.vlsiinsights.com/lms_storage/
+  ```
+- **Pass Criteria**: Every request returns HTTP 403 Forbidden or HTTP 404 Not Found. Directory indexing is disabled (`Options -Indexes`).
+
+---
+
+### 15. HTTP Range Specification Tests (RFC 9110)
+- **Objective**: Verify that `/api/video_segment.php` handles all valid single range patterns, suffix ranges, and correctly returns HTTP 416 for malformed or multi-range headers.
+- **Status**: **VERIFIED WITH EVIDENCE via CLI Unit Test** (`tests/cli_range_test.php`)
+- **CLI / curl Test Vectors**:
+  ```bash
+  # 1. First byte only (bytes=0-0) -> HTTP 206, Content-Range: bytes 0-0/SIZE, Length: 1
+  curl -H "Range: bytes=0-0" "https://learn.vlsiinsights.com/api/video_segment.php?id=1&s=segment_0001.ts&t=TOKEN"
+
+  # 2. Bounded range (bytes=0-99) -> HTTP 206, Content-Range: bytes 0-99/SIZE, Length: 100
+  curl -H "Range: bytes=0-99" "https://learn.vlsiinsights.com/api/video_segment.php?id=1&s=segment_0001.ts&t=TOKEN"
+
+  # 3. Open-ended range (bytes=100-) -> HTTP 206, Content-Range: bytes 100-(SIZE-1)/SIZE
+  curl -H "Range: bytes=100-" "https://learn.vlsiinsights.com/api/video_segment.php?id=1&s=segment_0001.ts&t=TOKEN"
+
+  # 4. Suffix range (bytes=-500) -> HTTP 206, Content-Range: bytes (SIZE-500)-(SIZE-1)/SIZE, Length: 500
+  curl -H "Range: bytes=-500" "https://learn.vlsiinsights.com/api/video_segment.php?id=1&s=segment_0001.ts&t=TOKEN"
+
+  # 5. Out of bounds range (bytes=999999999-) -> HTTP 416 Range Not Satisfiable, Content-Range: bytes */SIZE
+  curl -H "Range: bytes=999999999-" "https://learn.vlsiinsights.com/api/video_segment.php?id=1&s=segment_0001.ts&t=TOKEN"
+
+  # 6. Multi-range header (bytes=0-50, 100-200) -> HTTP 416 Range Not Satisfiable (multipart rejected)
+  curl -H "Range: bytes=0-50, 100-200" "https://learn.vlsiinsights.com/api/video_segment.php?id=1&s=segment_0001.ts&t=TOKEN"
+  ```
+- **Pass Criteria**: Standard ranges return HTTP 206 Partial Content with correct byte bounds; invalid or multipart ranges return HTTP 416 Range Not Satisfiable.
+

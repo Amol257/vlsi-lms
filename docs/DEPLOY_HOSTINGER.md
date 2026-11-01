@@ -57,7 +57,7 @@ For maximum security on Hostinger, place `config.local.php` one directory above 
            'app_key' => '<64_HEX_CHARS_GENERATED_BY_ADMIN>',
            'admin_bootstrap_emails' => [
                'admin@vlsiinsights.com',
-               'amol.singhal25@gmail.com'
+               '<YOUR_PERSONAL_ADMIN_EMAIL>'
            ],
            'session_idle_timeout' => 28800,
            'session_absolute_timeout' => 86400,

@@ -71,6 +71,10 @@ This document details the multi-layered security controls implemented across the
    - Burst detection: logs a security alert to `audit_log` if rapid repeated key requests are detected.
 4. Dynamic Watermarking:
    - A moving text watermark displays student email, client IP, and real-time clock across the video viewport to discourage screen recording.
+5. Known Limitations of AES-128 Gated Streaming:
+   - AES-128 HLS encryption stops casual downloading and direct link sharing. However, because AES-128 keys are delivered to standard web video players, any enrolled student with a valid session can theoretically inspect network requests, capture the decryption key and encrypted segments, and reassemble/decrypt them offline with a script.
+   - It also cannot prevent external screen recording software.
+   - Therefore, forensic dynamic watermarking, concurrency locks, and detailed audit logging of all playback token issuances are the real deterrents against redistribution. Full cryptographic DRM (Google Widevine, Apple FairPlay) requires specialized proprietary licensing and CDN packaging, which can be integrated into the modular VideoProvider architecture in future phases.
 
 ---
 

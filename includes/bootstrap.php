@@ -14,15 +14,20 @@ date_default_timezone_set('Asia/Kolkata');
 function lms_config(?string $key = null, $default = null) {
     static $config = null;
     if ($config === null) {
-        $parent_config = dirname(__DIR__, 2) . '/config.local.php';
-        $local_config = dirname(__DIR__) . '/config.local.php';
+        // Priority: LMS_CONFIG env -> home directory outside public_html -> project root -> example
+        $custom_env = getenv('LMS_CONFIG');
+        $home_config = dirname(__DIR__, 3) . '/config.local.php';
+        $root_config = dirname(__DIR__) . '/config.local.php';
+        $example_config = dirname(__DIR__) . '/config.example.php';
 
-        if (file_exists($parent_config)) {
-            $config = require $parent_config;
-        } elseif (file_exists($local_config)) {
-            $config = require $local_config;
-        } elseif (file_exists(dirname(__DIR__) . '/config.example.php')) {
-            $config = require dirname(__DIR__) . '/config.example.php';
+        if (!empty($custom_env) && file_exists($custom_env)) {
+            $config = require $custom_env;
+        } elseif (file_exists($home_config)) {
+            $config = require $home_config;
+        } elseif (file_exists($root_config)) {
+            $config = require $root_config;
+        } elseif (file_exists($example_config)) {
+            $config = require $example_config;
         } else {
             $config = [];
         }
@@ -43,14 +48,71 @@ function lms_config(?string $key = null, $default = null) {
     return $data;
 }
 
-// 3. Strict Session Setup
+// 3. IP and Network Helpers
+function lms_ip_in_range(string $ip, string $range): bool {
+    $range = trim($range);
+    if (!str_contains($range, '/')) {
+        return $ip === $range;
+    }
+    [$subnet, $bits] = explode('/', $range, 2);
+    $ip_bin = @inet_pton($ip);
+    $subnet_bin = @inet_pton($subnet);
+    if ($ip_bin === false || $subnet_bin === false || strlen($ip_bin) !== strlen($subnet_bin)) {
+        return false;
+    }
+    $bits = (int)$bits;
+    $max_bits = strlen($ip_bin) * 8;
+    if ($bits < 0 || $bits > $max_bits) {
+        return false;
+    }
+    $bytes = intdiv($bits, 8);
+    $remainder_bits = $bits % 8;
+    if ($bytes > 0 && substr($ip_bin, 0, $bytes) !== substr($subnet_bin, 0, $bytes)) {
+        return false;
+    }
+    if ($remainder_bits > 0) {
+        $mask = ~((1 << (8 - $remainder_bits)) - 1) & 0xFF;
+        if ((ord($ip_bin[$bytes]) & $mask) !== (ord($subnet_bin[$bytes]) & $mask)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function lms_is_trusted_ip(string $ip, array $trusted_proxies): bool {
+    foreach ($trusted_proxies as $range) {
+        if (lms_ip_in_range($ip, $range)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// 4. Strict Session Setup
+$idle_limit = (int)lms_config('app.session_idle_timeout', 28800);
+$absolute_limit = (int)lms_config('app.session_absolute_timeout', 86400);
+
 if (session_status() === PHP_SESSION_NONE) {
     ini_set('session.use_strict_mode', '1');
     ini_set('session.use_only_cookies', '1');
+    ini_set('session.gc_maxlifetime', (string)$idle_limit);
+
+    // Optional custom private session storage directory
+    $custom_sess_path = lms_config('app.session_save_path');
+    if (!empty($custom_sess_path) && is_dir($custom_sess_path) && is_writable($custom_sess_path)) {
+        session_save_path($custom_sess_path);
+    }
+
+    $remote_ip = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+    $trusted_proxies = lms_config('app.trusted_proxies', []);
+    if (!is_array($trusted_proxies)) {
+        $trusted_proxies = array_filter(array_map('trim', explode(',', (string)$trusted_proxies)));
+    }
+    $is_trusted_proxy = lms_is_trusted_ip($remote_ip, $trusted_proxies);
 
     $is_https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off')
         || (isset($_SERVER['SERVER_PORT']) && (int)$_SERVER['SERVER_PORT'] === 443)
-        || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
+        || ($is_trusted_proxy && isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https');
 
     session_set_cookie_params([
         'lifetime' => 0,
@@ -65,8 +127,6 @@ if (session_status() === PHP_SESSION_NONE) {
 
 // 4. Session Timeouts: 8 Hour Idle Timeout, 24 Hour Absolute Timeout
 $now = time();
-$idle_limit = (int)lms_config('app.session_idle_timeout', 28800);
-$absolute_limit = (int)lms_config('app.session_absolute_timeout', 86400);
 
 if (isset($_SESSION['lms_user'])) {
     if (isset($_SESSION['auth_time']) && ($now - $_SESSION['auth_time'] > $absolute_limit)) {
@@ -94,7 +154,12 @@ if (isset($_SESSION['lms_user'])) {
         header('Location: /login.php?reason=idle');
         exit;
     }
-    $_SESSION['last_activity'] = $now;
+
+    // Do not refresh last_activity on heartbeat pings so 8 hour idle timeout triggers if tab left idle
+    $req_uri = $_SERVER['REQUEST_URI'] ?? '';
+    if (!str_contains($req_uri, 'heartbeat.php')) {
+        $_SESSION['last_activity'] = $now;
+    }
 }
 
 // 5. CSRF Protection Helpers
@@ -121,23 +186,49 @@ function verify_csrf_token(?string $token): bool {
 }
 
 function require_csrf(): void {
+    // Only accept POST body or HTTP header; never accept query parameters
     $token = $_POST['csrf_token']
         ?? $_SERVER['HTTP_X_CSRF_TOKEN']
-        ?? $_GET['csrf_token']
         ?? '';
 
     if (!verify_csrf_token($token)) {
         http_response_code(403);
         if (isset($_SERVER['HTTP_ACCEPT']) && str_contains($_SERVER['HTTP_ACCEPT'], 'application/json')) {
             header('Content-Type: application/json; charset=utf-8');
-            echo json_encode(['error' => 'Invalid or expired CSRF token.']);
+            echo json_encode(['error' => 'Invalid or missing CSRF token. Please refresh the page.']);
             exit;
         }
-        die('Forbidden: invalid CSRF token.');
+        die("403 Forbidden: Invalid CSRF token. Please return to the previous page and reload.");
     }
 }
 
-// 6. Output Escaping & JSON Helpers
+// 6. Security and Sanitization Utilities
+function get_client_ip(): string {
+    $remote = $_SERVER['REMOTE_ADDR'] ?? '127.0.0.1';
+    $trusted_proxies = lms_config('app.trusted_proxies', []);
+    if (!is_array($trusted_proxies)) {
+        $trusted_proxies = array_filter(array_map('trim', explode(',', (string)$trusted_proxies)));
+    }
+
+    if (empty($trusted_proxies) || !lms_is_trusted_ip($remote, $trusted_proxies)) {
+        return $remote;
+    }
+
+    if (!empty($_SERVER['HTTP_X_FORWARDED_FOR'])) {
+        $parts = array_map('trim', explode(',', $_SERVER['HTTP_X_FORWARDED_FOR']));
+        for ($i = count($parts) - 1; $i >= 0; $i--) {
+            if (!lms_is_trusted_ip($parts[$i], $trusted_proxies)) {
+                $filtered = filter_var($parts[$i], FILTER_VALIDATE_IP);
+                if ($filtered !== false) {
+                    return $filtered;
+                }
+            }
+        }
+    }
+
+    return $remote;
+}
+
 function h(?string $value): string {
     return htmlspecialchars((string)$value, ENT_QUOTES | ENT_HTML5, 'UTF-8');
 }
@@ -183,74 +274,50 @@ function get_db(): ?PDO {
     }
 }
 
-// 8. MySQL-backed Rate Limiter
-function check_rate_limit(string $action, string $identifier, int $max_attempts, int $window_seconds): bool {
+// 8. MySQL-backed Atomic Rate Limiter
+function check_rate_limit(string $action, string $identifier, int $max_attempts, int $window_seconds, bool $fail_closed = true): bool {
     $pdo = get_db();
     if (!$pdo) {
-        // If DB is offline, fail closed for security sensitive endpoints
-        return false;
+        return !$fail_closed;
+    }
+
+    if (strlen($identifier) > 128) {
+        $identifier = hash('sha256', $identifier);
+    }
+
+    // 1% probabilistic cleanup of expired rate limit rows older than 1 hour
+    if (mt_rand(1, 100) === 1) {
+        try {
+            $pdo->exec("DELETE FROM rate_limits WHERE reset_at < DATE_SUB(NOW(), INTERVAL 1 HOUR)");
+        } catch (\Throwable $t) {
+            // Silently ignore cleanup errors
+        }
     }
 
     try {
-        $stmt = $pdo->prepare("SELECT hits, reset_at FROM rate_limits WHERE action = ? AND identifier = ? LIMIT 1");
-        $stmt->execute([$action, $identifier]);
-        $row = $stmt->fetch();
         $now = time();
+        $reset_at = date('Y-m-d H:i:s', $now + $window_seconds);
 
-        if ($row) {
-            $reset_time = strtotime($row['reset_at']);
-            if ($now < $reset_time) {
-                if ((int)$row['hits'] >= $max_attempts) {
-                    return false;
-                }
-                $upd = $pdo->prepare("UPDATE rate_limits SET hits = hits + 1 WHERE action = ? AND identifier = ?");
-                $upd->execute([$action, $identifier]);
-                return true;
-            } else {
-                $reset_at = date('Y-m-d H:i:s', $now + $window_seconds);
-                $upd = $pdo->prepare("UPDATE rate_limits SET hits = 1, first_hit_at = NOW(), reset_at = ? WHERE action = ? AND identifier = ?");
-                $upd->execute([$reset_at, $action, $identifier]);
-                return true;
-            }
-        } else {
-            $reset_at = date('Y-m-d H:i:s', $now + $window_seconds);
-            $ins = $pdo->prepare("INSERT INTO rate_limits (action, identifier, hits, first_hit_at, reset_at) VALUES (?, ?, 1, NOW(), ?)");
-            $ins->execute([$action, $identifier, $reset_at]);
-            return true;
-        }
-    } catch (PDOException $e) {
-        // If rate_limits table does not exist yet, create it on demand
-        try {
-            $pdo->exec("CREATE TABLE IF NOT EXISTS `rate_limits` (
-                `id` int(11) NOT NULL AUTO_INCREMENT,
-                `action` varchar(64) NOT NULL,
-                `identifier` varchar(191) NOT NULL,
-                `hits` int(11) NOT NULL DEFAULT 1,
-                `first_hit_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                `reset_at` timestamp NOT NULL,
-                PRIMARY KEY (`id`),
-                UNIQUE KEY `idx_action_id` (`action`, `identifier`),
-                KEY `idx_reset_at` (`reset_at`)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-            return true;
-        } catch (Exception $ex) {
-            error_log("Rate limiting error: " . $ex->getMessage());
-            return true;
-        }
-    }
-}
+        // Atomic upsert with conditional reset in SQL
+        $sql = "INSERT INTO rate_limits (action, identifier, hits, first_hit_at, reset_at)
+                VALUES (?, ?, 1, NOW(), ?)
+                ON DUPLICATE KEY UPDATE
+                    hits = IF(reset_at <= NOW(), 1, hits + 1),
+                    first_hit_at = IF(reset_at <= NOW(), NOW(), first_hit_at),
+                    reset_at = IF(reset_at <= NOW(), VALUES(reset_at), reset_at)";
+        $stmt = $pdo->prepare($sql);
+        $stmt->execute([$action, $identifier, $reset_at]);
 
-// 9. Client IP Resolver Helper
-function get_client_ip(): string {
-    $keys = ['HTTP_CF_CONNECTING_IP', 'HTTP_X_FORWARDED_FOR', 'REMOTE_ADDR'];
-    foreach ($keys as $key) {
-        if (!empty($_SERVER[$key])) {
-            $ip = explode(',', $_SERVER[$key])[0];
-            $ip = trim($ip);
-            if (filter_var($ip, FILTER_VALIDATE_IP)) {
-                return $ip;
-            }
+        $sel = $pdo->prepare("SELECT hits FROM rate_limits WHERE action = ? AND identifier = ? LIMIT 1");
+        $sel->execute([$action, $identifier]);
+        $row = $sel->fetch();
+
+        if ($row && (int)$row['hits'] > $max_attempts) {
+            return false;
         }
+        return true;
+    } catch (\Throwable $e) {
+        error_log("Rate limiting error: " . $e->getMessage());
+        return !$fail_closed;
     }
-    return $_SERVER['REMOTE_ADDR'] ?? '0.0.0.0';
 }
