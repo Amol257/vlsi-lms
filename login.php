@@ -23,6 +23,11 @@ if ($reason === 'other-device') {
     $error = 'Signed out due to inactivity. Please sign in again.';
 }
 
+$redirect_param = $_GET['redirect'] ?? '';
+$safe_redirect = (str_starts_with($redirect_param, '/') && !str_starts_with($redirect_param, '//') && !str_contains($redirect_param, '://') && !str_contains($redirect_param, '\\'))
+    ? $redirect_param
+    : '';
+
 $supabase_url = lms_config('supabase.url');
 $supabase_anon_key = lms_config('supabase.anon_key');
 $google_oauth_enabled = (bool)lms_config('supabase.google_oauth_enabled', true);
@@ -118,6 +123,7 @@ const SUPABASE_URL = <?= json_encode($supabase_url) ?>;
 const SUPABASE_ANON_KEY = <?= json_encode($supabase_anon_key) ?>;
 const SITE_URL = <?= json_encode($site_url) ?>;
 const CSRF_TOKEN = document.getElementById('csrfToken').value;
+const REDIRECT_TARGET = <?= json_encode($safe_redirect) ?>;
 
 let sb = null;
 if (SUPABASE_URL && SUPABASE_ANON_KEY && typeof supabase !== 'undefined') {
@@ -256,8 +262,12 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
       throw new Error(sessionRes.error || 'Server rejected session exchange.');
     }
 
+    function isSafePath(url) {
+      return typeof url === 'string' && url.startsWith('/') && !url.startsWith('//') && !url.includes('://') && !url.includes('\\');
+    }
+    const targetUrl = isSafePath(REDIRECT_TARGET) ? REDIRECT_TARGET : (sessionRes.redirect || '/student/index.php');
     submitBtn.textContent = 'Success! Redirecting...';
-    window.location.href = sessionRes.redirect || '/student/index.php';
+    window.location.href = isSafePath(targetUrl) ? targetUrl : '/student/index.php';
 
   } catch (err) {
     showError(err.message || 'Authentication failed. Please check your credentials.');

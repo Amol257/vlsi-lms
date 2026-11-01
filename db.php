@@ -6,45 +6,85 @@
 
 require_once __DIR__ . '/includes/bootstrap.php';
 
-// Auth User Helper
+// Auth User Helper: Strict state validation, live status recheck, and single-session lock
 function auth_user() {
-    if (!isset($_SESSION['lms_user'])) {
+    if (!isset($_SESSION['lms_user']) || empty($_SESSION['lms_user']['id'])) {
         return null;
     }
 
-    $user = $_SESSION['lms_user'];
+    $sess_user = $_SESSION['lms_user'];
+    $user_id = (int)$sess_user['id'];
+    $is_student = (($sess_user['role'] ?? '') === 'student');
 
-    // For students, enforce single active session heartbeat check
-    if (($user['role'] ?? '') === 'student') {
-        $pdo = get_db();
-        if ($pdo) {
-            try {
-                $stmt = $pdo->prepare("SELECT session_id FROM lms_active_session WHERE user_id = ? LIMIT 1");
-                $stmt->execute([$user['id']]);
-                $active = $stmt->fetch();
-                $current_sid = session_id();
-
-                if ($active && $active['session_id'] !== $current_sid) {
-                    // Session displaced by another login
-                    session_unset();
-                    session_destroy();
-                    return null;
-                }
-            } catch (PDOException $e) {
-                // Table might not exist yet during initial installation
-            }
-        }
+    $pdo = get_db();
+    if (!$pdo) {
+        // Fail closed for authenticated sessions if database is unreachable
+        return null;
     }
 
-    return $user;
+    try {
+        if ($is_student) {
+            $stmt = $pdo->prepare("SELECT u.id, u.status, u.role, u.name, u.email, u.batch_id, s.session_id, s.last_seen 
+                FROM lms_users u 
+                LEFT JOIN lms_active_session s ON u.id = s.user_id 
+                WHERE u.id = ? LIMIT 1");
+        } else {
+            $stmt = $pdo->prepare("SELECT id, status, role, name, email, batch_id FROM lms_users WHERE id = ? LIMIT 1");
+        }
+        $stmt->execute([$user_id]);
+        $row = $stmt->fetch();
+
+        if (!$row) {
+            // User was removed from database
+            session_unset();
+            session_destroy();
+            return null;
+        }
+
+        // Reject if status is anything other than 'active'
+        if ($row['status'] !== 'active') {
+            session_unset();
+            session_destroy();
+            return null;
+        }
+
+        // For students: strict active session enforcement (missing row or mismatched session id is immediately displaced)
+        if ($is_student) {
+            $current_sid = session_id();
+            if (empty($row['session_id']) || $row['session_id'] !== $current_sid) {
+                session_unset();
+                session_destroy();
+                return null;
+            }
+        }
+
+        // Sync role changes if updated by administrator
+        if ($row['role'] !== $sess_user['role']) {
+            $_SESSION['lms_user']['role'] = $row['role'];
+            $sess_user['role'] = $row['role'];
+        }
+
+        // Keep session metadata synced with database
+        $_SESSION['lms_user']['name'] = $row['name'];
+        $_SESSION['lms_user']['batch_id'] = $row['batch_id'] ? (int)$row['batch_id'] : null;
+
+        return $_SESSION['lms_user'];
+
+    } catch (PDOException $e) {
+        error_log("auth_user check failed: " . $e->getMessage());
+        return null;
+    }
 }
 
-// Role Enforcement Helper
+// Role Enforcement Helper with strict single-slash redirect validation
 function require_role($allowed_roles = []) {
     $user = auth_user();
     if (!$user) {
-        $current_url = $_SERVER['REQUEST_URI'] ?? '/';
-        header("Location: /login.php?redirect=" . urlencode($current_url));
+        $raw_uri = $_SERVER['REQUEST_URI'] ?? '/';
+        $safe_redirect = (str_starts_with($raw_uri, '/') && !str_starts_with($raw_uri, '//') && !str_contains($raw_uri, '://') && !str_contains($raw_uri, '\\')) 
+            ? $raw_uri 
+            : '/';
+        header("Location: /login.php?redirect=" . urlencode($safe_redirect));
         exit;
     }
 
