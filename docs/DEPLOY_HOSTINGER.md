@@ -54,7 +54,7 @@ For maximum security on Hostinger, place `config.local.php` one directory above 
        ],
        'app' => [
            'site_url' => 'https://learn.vlsiinsights.com',
-           'app_key' => '30e1799c8cb94460b6273182f6a3c351c8434102b5af47cba6aa79c069a7c357',
+           'app_key' => '<64_HEX_CHARS_GENERATED_BY_ADMIN>',
            'admin_bootstrap_emails' => [
                'admin@vlsiinsights.com',
                'amol.singhal25@gmail.com'

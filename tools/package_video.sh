@@ -8,7 +8,7 @@ set -euo pipefail
 
 if [ "$#" -lt 2 ]; then
     echo "Usage: $0 <input_video.mp4> <app_key_hex_32_bytes> [output_dir]"
-    echo "Example: $0 lecture1.mp4 30e1799c8cb94460b6273182f6a3c351c8434102b5af47cba6aa79c069a7c357 ./packaged_lec1"
+    echo "Example: $0 lecture1.mp4 <64_HEX_CHARS_GENERATED_BY_ADMIN> ./packaged_lec1"
     exit 1
 fi
 

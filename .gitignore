@@ -2,6 +2,8 @@
 config.local.php
 .env
 .env.*
+*.key
+manifest.json
 
 # Upload and media directories
 storage/
