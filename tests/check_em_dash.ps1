@@ -11,3 +11,4 @@ foreach ($f in $files) {
     }
 }
 Write-Host "TOTAL_EM_DASHES_FOUND: $found"
+

@@ -163,3 +163,4 @@ async function dispatchEnrollmentWebhook(email, programSlug, secret) {
 2. **Timing-Safe Verification**: The LMS verifies the signature using `hash_equals()`.
 3. **Audit Trails**: Rejected webhook attempts are recorded in `audit_log` with IP and rejection reason, without logging the secret or payload body.
 4. **Idempotent Upsert**: Multiple identical requests execute `INSERT INTO enrollments ... ON DUPLICATE KEY UPDATE` cleanly, guaranteeing that only one active enrollment row exists per user and program.
+

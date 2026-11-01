@@ -17,34 +17,67 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
 
         // Allowed academic upload extensions
         $allowed_exts = ['pdf', 'tar', 'gz', 'zip', 'v', 'sv', 'txt', 'py'];
-        if (!in_array($ext, $allowed_exts, true)) {
-            $error = 'Invalid file type. Allowed formats: .pdf, .tar, .gz, .zip, .v, .sv, .txt';
+
+        // Strict MIME inspection using finfo
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $detected_mime = finfo_file($finfo, $file['tmp_name']);
+        finfo_close($finfo);
+
+        $allowed_mimes = [
+            'application/pdf',
+            'application/x-tar', 'application/tar', 'application/gzip', 'application/x-gzip',
+            'application/zip', 'application/x-zip-compressed',
+            'text/plain', 'text/x-verilog', 'text/x-python', 'application/octet-stream'
+        ];
+
+        if (!in_array($ext, $allowed_exts, true) || !in_array($detected_mime, $allowed_mimes, true)) {
+            $error = 'Invalid file type or MIME mismatch. Allowed formats: .pdf, .tar, .gz, .zip, .v, .sv, .txt, .py';
         } elseif ($file['size'] > 50 * 1024 * 1024) { // 50MB max
             $error = 'File size exceeds maximum 50MB limit.';
         } else {
-            $storage_dir = dirname(__DIR__, 2) . '/lms_storage/submissions';
-            if (!is_dir($storage_dir)) {
+            // Storage priority: user home -> domain root -> project root fallback
+            $candidate_dirs = [
+                dirname(__DIR__, 3) . '/lms_storage/submissions',
+                dirname(__DIR__, 2) . '/lms_storage/submissions',
+                dirname(__DIR__) . '/lms_storage/submissions'
+            ];
+
+            $storage_dir = null;
+            foreach ($candidate_dirs as $cand) {
+                if (!is_dir($cand)) {
+                    @mkdir($cand, 0755, true);
+                }
+                if (is_dir($cand) && is_writable($cand)) {
+                    $storage_dir = $cand;
+                    break;
+                }
+            }
+
+            if (!$storage_dir) {
                 $storage_dir = dirname(__DIR__) . '/lms_storage/submissions';
                 if (!is_dir($storage_dir)) {
                     @mkdir($storage_dir, 0755, true);
                 }
             }
 
-            $safe_filename = 'subm_' . $student['id'] . '_' . $resource_id . '_' . bin2hex(random_bytes(6)) . '.' . $ext;
+            $safe_filename = 'subm_' . $student['id'] . '_' . $resource_id . '_' . bin2hex(random_bytes(16)) . '.' . $ext;
             $dest = $storage_dir . '/' . $safe_filename;
+            $real_storage_dir = realpath($storage_dir);
 
-            if (move_uploaded_file($file['tmp_name'], $dest)) {
+            // Path traversal guard
+            if ($real_storage_dir && strpos($safe_filename, '..') === false && move_uploaded_file($file['tmp_name'], $dest)) {
                 $stmt = $pdo->prepare("INSERT INTO submissions (resource_id, user_id, file_path, submitted_at) VALUES (?, ?, ?, NOW())");
                 $stmt->execute([$resource_id, $student['id'], $safe_filename]);
                 $sub_id = (int)$pdo->lastInsertId();
 
                 lms_audit_log($student['id'], 'submit_assignment', 'submissions', $sub_id, [
                     'resource_id' => $resource_id,
-                    'file' => $safe_filename
+                    'file' => $safe_filename,
+                    'mime' => $detected_mime
                 ]);
                 $notice = 'Assignment submitted successfully!';
             } else {
-                $error = 'Failed to save submission file on server.';
+                $error = 'Failed to safely store submission file on server.';
             }
         }
     } else {

@@ -20,7 +20,10 @@ ServerSignature Off
     RewriteRule ^ - [R=404,L]
 
     # Block access to system directories with 404 Not Found
-    RewriteRule ^(database|tools|docs|scratch|includes|lms_storage|media/incoming|storage|uploads)(\/|$) - [R=404,L,NC]
+    RewriteRule ^(database|tools|docs|scratch|includes|lms_storage|media/incoming|storage|uploads|tests)(\/|$) - [R=404,L,NC]
+
+    # Block access to script files with 404 Not Found
+    RewriteRule \.(ps1|sh)$ - [R=404,L,NC]
 
     # Block direct requests to .json files except under assets/ (e.g. webmanifest)
     RewriteCond %{REQUEST_URI} !^/assets/

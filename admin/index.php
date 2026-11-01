@@ -125,6 +125,11 @@ if ($pdo) {
     </header>
 
     <main class="content">
+      <?php if (!lms_is_custom_session_path_active()): ?>
+        <div style="background: #fffbeb; border: 1px solid #fef3c7; color: #b45309; padding: 12px 16px; border-radius: 8px; margin-bottom: 20px; font-size: 13px;">
+          <strong>Shared Hosting Session Warning:</strong> PHP sessions are stored in the server default temporary folder. For shared hosting isolation, set <code>app.session_save_path</code> in <code>config.local.php</code> to a dedicated directory outside public_html.
+        </div>
+      <?php endif; ?>
       <section class="stats">
         <div class="stat">
           <div class="stat-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div>

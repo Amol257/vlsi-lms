@@ -1,4 +1,8 @@
 <?php
+if (php_sapi_name() !== 'cli') {
+    http_response_code(404);
+    die("Not found.\n");
+}
 /**
  * CLI Test Harness for HTTP Range Parser (conforming to RFC 9110)
  */
@@ -80,3 +84,4 @@ foreach ($tests as $t) {
 }
 
 echo "ALL_RANGE_TESTS_PASS\n";
+

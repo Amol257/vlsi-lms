@@ -9,6 +9,11 @@ if (!$user) {
     die("Unauthorized.");
 }
 
+$current_sid = session_id();
+
+// Release session lock immediately so parallel segment downloads never stall
+session_write_close();
+
 $video_id = !empty($_GET['id']) ? (int)$_GET['id'] : 0;
 $segment = basename($_GET['s'] ?? '');
 $token = trim($_GET['t'] ?? '');
@@ -40,26 +45,18 @@ if (!$pdo) {
     die("Database error.");
 }
 
-// 5-minute cached access recheck: verifies enrollment/status before releasing session lock
-$sess_cache_key = "video_access_{$video_id}";
-$last_access_check = $_SESSION[$sess_cache_key] ?? 0;
-$now = time();
-
-if (($now - $last_access_check) > 300) {
-    $access = lms_check_video_access($user, $video_id, $pdo);
-    if (!$access['allowed']) {
-        http_response_code(403);
-        header('X-Content-Type-Options: nosniff');
-        die("Access denied.");
-    }
-    $_SESSION[$sess_cache_key] = $now;
+// 5-minute non-blocking cached access recheck: verifies enrollment/status lock-free
+$access = lms_check_cached_video_access($user, $video_id, $pdo, 300);
+if (!$access['allowed']) {
+    http_response_code(403);
+    header('X-Content-Type-Options: nosniff');
+    die("Access denied.");
 }
 
 // Single joined query for student session + video lookup (admins/teachers skip session join)
 $video = null;
 try {
     if ($user['role'] === 'student') {
-        $current_sid = session_id();
         $stmt = $pdo->prepare("SELECT v.id, v.hls_dir, s.session_id 
             FROM videos v 
             LEFT JOIN lms_active_session s ON s.user_id = ? 
@@ -84,9 +81,6 @@ try {
     header('X-Content-Type-Options: nosniff');
     die("Internal server error.");
 }
-
-// Release session lock immediately so parallel segment downloads do not stall PHP sessions
-session_write_close();
 
 try {
     if (!$video) {

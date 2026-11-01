@@ -209,6 +209,61 @@ function lms_check_video_access(array $user, int $video_id, ?PDO $pdo = null): a
 }
 
 /**
+ * Cached Video Access Policy Helper for Segment Streaming.
+ * Avoids holding PHP session locks by using an APCu or fast file-based cache
+ * with a 5-minute (300s) TTL.
+ *
+ * @return array{allowed: bool, video: ?array, reason: string}
+ */
+function lms_check_cached_video_access(array $user, int $video_id, ?PDO $pdo = null, int $ttl = 300): array {
+    $role = $user['role'] ?? 'student';
+    if ($role === 'admin' || $role === 'teacher') {
+        return ['allowed' => true, 'video' => null, 'reason' => 'authorized_role'];
+    }
+
+    $uid = (int)($user['id'] ?? 0);
+    $cache_key = 'lms_vaccess_' . hash('sha256', "{$uid}:{$video_id}");
+
+    // 1. Try APCu memory cache if enabled
+    if (function_exists('apcu_fetch')) {
+        $cached = apcu_fetch($cache_key, $success);
+        if ($success && is_array($cached) && !empty($cached['allowed'])) {
+            return $cached;
+        }
+    }
+
+    // 2. Try fast temporary file cache
+    $tmp_dir = sys_get_temp_dir();
+    $cache_file = $tmp_dir . DIRECTORY_SEPARATOR . $cache_key . '.json';
+    $now = time();
+
+    if (file_exists($cache_file)) {
+        $mtime = filemtime($cache_file);
+        if ($mtime && ($now - $mtime) < $ttl) {
+            $data = json_decode(@file_get_contents($cache_file), true);
+            if (is_array($data) && !empty($data['allowed'])) {
+                return $data;
+            }
+        }
+    }
+
+    // 3. Fallback: run database access verification
+    $access = lms_check_video_access($user, $video_id, $pdo);
+    if (!empty($access['allowed'])) {
+        if (function_exists('apcu_store')) {
+            @apcu_store($cache_key, $access, $ttl);
+        }
+        @file_put_contents($cache_file, json_encode(['allowed' => true, 'cached_at' => $now, 'reason' => $access['reason'] ?? 'cached']), LOCK_EX);
+    } else {
+        if (file_exists($cache_file)) {
+            @unlink($cache_file);
+        }
+    }
+
+    return $access;
+}
+
+/**
  * Get HLS storage base directory.
  * Search order: configured 'video.storage_dir', then outside docroot, then protected local directory.
  * Does not auto-create directories on request.

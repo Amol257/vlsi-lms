@@ -1,4 +1,8 @@
 <?php
+if (php_sapi_name() !== 'cli') {
+    http_response_code(404);
+    die("Not found.\n");
+}
 require_once __DIR__ . '/../includes/video_helper.php';
 
 // 1. Test compromised key rejection
@@ -47,3 +51,4 @@ if (!isset($usage['bytes']) || !isset($usage['cached_at'])) {
 }
 
 echo "ALL_VIDEO_HELPER_TESTS_PASS\n";
+

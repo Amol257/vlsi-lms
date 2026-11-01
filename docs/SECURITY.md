@@ -94,3 +94,33 @@ This document details the multi-layered security controls implemented across the
    - `Referrer-Policy: strict-origin-when-cross-origin`
    - `Permissions-Policy: camera=(), microphone=(), geolocation=()`
    - Strict `Content-Security-Policy` restricting script and connect origins.
+
+---
+
+## 6. Content Security Policy (CSP) Specification & Architecture
+
+### 6.1 Full Production CSP Header
+```text
+Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' https://checkout.razorpay.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; media-src 'self' blob:; worker-src 'self' blob:; connect-src 'self' https://riipijrgucqigndcjwre.supabase.co https://api.razorpay.com https://lumberjack.razorpay.com; frame-src 'self' https://meet.google.com https://api.razorpay.com; frame-ancestors 'self'; object-src 'none'; base-uri 'self'; form-action 'self' https://riipijrgucqigndcjwre.supabase.co;
+```
+
+### 6.2 Justification for Retaining `'unsafe-inline'`
+In the VLSI LMS architecture, PHP renders dynamic views server-side and embeds runtime parameters directly into inline script blocks:
+- `login.php`: Injects Supabase project endpoint and anonymous client credentials.
+- `student/watch.php`: Injects dynamic video IDs, signed playback tokens, watermark user email, and client IP into the player configuration.
+- `student/programs.php`: Injects Razorpay public key and generated order IDs for checkout modal invocation.
+
+Because Hostinger shared Apache environments do not support dynamic per-request Apache header nonce generation without heavy performance overhead or complex PHP header middleware, `'unsafe-inline'` is retained for script execution.
+
+Defense in Depth mitigating `'unsafe-inline'`:
+1. Strict `object-src 'none'` blocks Flash, Java applets, and legacy plugin injection.
+2. Strict `base-uri 'self'` prevents base tag hijacking.
+3. Strict `connect-src` blocks exfiltration to arbitrary external domains (allowing only Supabase and Razorpay).
+4. Strict input sanitization with `htmlspecialchars()` across all rendered dynamic strings prevents arbitrary HTML or script element injection.
+5. State-changing requests enforce anti-CSRF token verification and prepared SQL statements.
+
+### 6.3 Inline Script Inventory
+- `login.php`: Supabase authentication listener, magic link handlers, OAuth redirect handling, and displacement modal logic.
+- `student/watch.php`: Hls.js video player initialization, token injection, watermark canvas rendering, and playback progress beacon.
+- `student/programs.php`: Razorpay checkout options builder and payment response handler.
+- `admin/*.php` & `teacher/*.php`: Modal dialog triggers and client-side confirmation dialogs.

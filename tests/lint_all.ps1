@@ -13,3 +13,4 @@ foreach ($f in $files) {
     }
 }
 Write-Host "LINT_SUMMARY: Passed: $passed, Failed: $failed"
+

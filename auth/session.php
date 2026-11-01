@@ -129,7 +129,7 @@ try {
                 'incoming_uid' => $supabase_uid,
                 'ip' => $client_ip
             ]);
-            json_res(['error' => 'Account conflict detected. Please contact support.'], 409);
+            json_res(['error' => 'Your account credentials have changed. Please contact your administrator to sync your account.'], 403);
         }
     }
 

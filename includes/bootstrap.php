@@ -4,30 +4,55 @@
  * Loaded by db.php and all entry points.
  */
 
-// 1. Error Reporting Configuration
+// 1. PHP Runtime Environment Guard
+if (PHP_VERSION_ID < 80000 || !extension_loaded('sodium')) {
+    http_response_code(500);
+    header('Content-Type: text/plain; charset=utf-8');
+    die("Server Configuration Error: VLSI LMS requires PHP 8.0 or higher with the 'sodium' extension enabled. In Hostinger hPanel, please set the PHP version for learn.vlsiinsights.com to PHP 8.2 and verify that extension=sodium is active.");
+}
+
+// 2. Error Reporting Configuration
 error_reporting(E_ALL);
 ini_set('display_errors', '0');
 ini_set('log_errors', '1');
 date_default_timezone_set('Asia/Kolkata');
 
 // 2. Load Configuration
+function lms_get_candidate_config_paths(): array {
+    return [
+        'custom_env'     => getenv('LMS_CONFIG') ?: null,
+        'domain_parent'  => dirname(__DIR__, 3) . '/config.local.php', // /home/<user>/domains/<domain>/config.local.php
+        'user_home'      => dirname(__DIR__, 5) . '/config.local.php', // /home/<user>/config.local.php
+        'project_root'   => dirname(__DIR__) . '/config.local.php',     // Protected fallback inside repo root
+        'example_config' => dirname(__DIR__) . '/config.example.php'
+    ];
+}
+
+function lms_get_loaded_config_path(): ?string {
+    return $GLOBALS['lms_loaded_config_file'] ?? null;
+}
+
 function lms_config(?string $key = null, $default = null) {
     static $config = null;
     if ($config === null) {
-        // Priority: LMS_CONFIG env -> home directory outside public_html -> project root -> example
-        $custom_env = getenv('LMS_CONFIG');
-        $home_config = dirname(__DIR__, 3) . '/config.local.php';
-        $root_config = dirname(__DIR__) . '/config.local.php';
-        $example_config = dirname(__DIR__) . '/config.example.php';
+        $paths = lms_get_candidate_config_paths();
+        $GLOBALS['lms_loaded_config_file'] = null;
 
-        if (!empty($custom_env) && file_exists($custom_env)) {
-            $config = require $custom_env;
-        } elseif (file_exists($home_config)) {
-            $config = require $home_config;
-        } elseif (file_exists($root_config)) {
-            $config = require $root_config;
-        } elseif (file_exists($example_config)) {
-            $config = require $example_config;
+        if (!empty($paths['custom_env']) && file_exists($paths['custom_env'])) {
+            $config = require $paths['custom_env'];
+            $GLOBALS['lms_loaded_config_file'] = $paths['custom_env'];
+        } elseif (file_exists($paths['domain_parent'])) {
+            $config = require $paths['domain_parent'];
+            $GLOBALS['lms_loaded_config_file'] = $paths['domain_parent'];
+        } elseif (file_exists($paths['user_home'])) {
+            $config = require $paths['user_home'];
+            $GLOBALS['lms_loaded_config_file'] = $paths['user_home'];
+        } elseif (file_exists($paths['project_root'])) {
+            $config = require $paths['project_root'];
+            $GLOBALS['lms_loaded_config_file'] = $paths['project_root'];
+        } elseif (file_exists($paths['example_config'])) {
+            $config = require $paths['example_config'];
+            $GLOBALS['lms_loaded_config_file'] = $paths['example_config'];
         } else {
             $config = [];
         }
@@ -99,6 +124,12 @@ if (session_status() === PHP_SESSION_NONE) {
 
     // Optional custom private session storage directory
     $custom_sess_path = lms_config('app.session_save_path');
+    if (empty($custom_sess_path)) {
+        $auto_parent_sess = dirname(__DIR__, 3) . '/lms_sessions';
+        if (is_dir($auto_parent_sess) && is_writable($auto_parent_sess)) {
+            $custom_sess_path = $auto_parent_sess;
+        }
+    }
     if (!empty($custom_sess_path) && is_dir($custom_sess_path) && is_writable($custom_sess_path)) {
         session_save_path($custom_sess_path);
     }
@@ -123,6 +154,19 @@ if (session_status() === PHP_SESSION_NONE) {
         'samesite' => 'Lax'
     ]);
     session_start();
+}
+
+function lms_is_custom_session_path_active(): bool {
+    $current = session_save_path();
+    if (empty($current)) {
+        return false;
+    }
+    // Check if path is outside default system temp folder
+    $sys_temp = sys_get_temp_dir();
+    if (rtrim($current, '/\\') === rtrim($sys_temp, '/\\') || $current === '/tmp') {
+        return false;
+    }
+    return is_dir($current) && is_writable($current);
 }
 
 // 4. Session Timeouts: 8 Hour Idle Timeout, 24 Hour Absolute Timeout
