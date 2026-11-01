@@ -1,6 +1,6 @@
 # VLSI LMS : Hostinger PHP & MySQL Learning Portal
 
-A high-performance Learning Management System built for **VLSI Insights**, providing role-based learning portals for students, faculty instructors, and administrators.
+A high-performance Learning Management System built for **VLSI Insights** (`learn.vlsiinsights.com`), providing secure, role-based portals for students, faculty instructors, and administrators on Hostinger web hosting (PHP 8 + MySQL).
 
 > [!WARNING]
 > **Security Notice**: Previously committed default credentials (such as `admin@lms.local`, `teacher@vlsiinsights.com`, `student@example.com`, `Admin@123`, `Pass@123`) must be treated as permanently compromised. All production installations must generate unique credentials and rely on Supabase Auth.
@@ -10,50 +10,81 @@ A high-performance Learning Management System built for **VLSI Insights**, provi
 ## Key Features
 
 1. **Native Hostinger Stack (PHP 8.x + MySQL)**:
-   - Server-side token validation and secure PHP sessions.
-   - Central database configuration loaded from `../config.local.php` or `config.local.php`.
-   - Complete database schema and migrations in `database/`.
+   - Server-side Supabase token validation and hardened PHP sessions.
+   - Central database configuration loaded from `../config.local.php` (above document root) or `config.local.php` (protected by `.htaccess`).
+   - Complete relational database schema and idempotent migrations in `database/`.
 
-2. **3 Core Role Portals**:
-   - **Administrators (`/admin/`)**: Manage courses, modules, batches, student enrollments, webinar scheduling, video approval, and audit logs.
-   - **Faculty / Instructors (`/teacher/`)**: Upload recorded lectures, notes, lab testbenches, and track lecture reviews.
-   - **Students (`/student/`)**: Enrolled cohort classroom, continuous video streaming with progress tracking, syllabus progress, lab downloads, and webinar access.
-
-3. **Enterprise Security & Session Hardening**:
+2. **Enterprise Session Hardening & Concurrency Gate**:
    - Strict session cookies (`HttpOnly`, `Secure`, `SameSite=Lax`).
    - 8-hour idle timeout, 24-hour absolute session expiration.
-   - Student single-active-session concurrency locking via heartbeat.
-   - MySQL-backed rate limiting on sensitive endpoints.
-   - Comprehensive CSRF protection across all state mutations.
+   - Student single active session lock with 150-second heartbeat check via `lms_active_session`.
+   - Administrator capability to reset stuck device sessions.
+
+3. **Client-Packaged Encrypted HLS Video Streaming**:
+   - Workstation packaging utilities (`tools/package_video.sh` and `tools/package_video.ps1`).
+   - AES-128 segment encryption with dynamic key delivery.
+   - Timed HMAC token verification on playlist and key endpoints.
+   - Dynamic user watermark (email, IP, clock) moving across the video viewport.
+   - Auto-pause on window blur or tab hide, with 10-second progress tracking.
+   - Disk quota monitoring against the ~100 GB Hostinger limit.
+
+4. **Gated Live Webinars (Google Meet)**:
+   - Server-side regex validation for Google Meet meeting links.
+   - Time-window gating: access opens 10 minutes prior to session and closes 3 hours after start.
+   - Single active session concurrency verification at join time.
+   - Automatic blank tab popup prevention.
+
+5. **Integrated Academic Portals**:
+   - **Administrators (`/admin/`)**: Manage curriculum modules, batches, student roster, program enrollments, webinars, video library, and security audit logs.
+   - **Faculty / Instructors (`/teacher/`)**: Upload recorded lectures, review student lab exercises, and assign grades with feedback.
+   - **Students (`/student/`)**: Program catalog, cohort classroom, lecture player with instant resume, lab submissions, and webinar access.
+   - **Payments & Webhooks**: Razorpay order generation, webhook signature verification, and external enrollment webhooks.
 
 ---
 
-## Step-by-Step Deployment on Hostinger
+## Directory Structure
 
-### Step 1: Create Subdomain in Hostinger
-1. Log in to **Hostinger hPanel**.
-2. Select your domain (`vlsiinsights.com`) and click **Manage**.
-3. In the sidebar, navigate to **Domains** -> **Subdomains**.
-4. Enter `learn` to create `learn.vlsiinsights.com` (document root `public_html/learn`).
+```text
+/
+|-- admin/                     # Administrator portal (dashboard, users, webinars, videos, audit, enrollments)
+|-- api/                       # REST endpoints (heartbeat, live_join, checkout, webhooks, video key/playlist)
+|-- assets/                    # Shared styles, scripts, and vendor libraries
+|   |-- app.js                 # Shared UI scripts
+|   |-- heartbeat.js           # Student session concurrency heartbeat client
+|   |-- style.css              # Portal stylesheet
+|   +-- vendor/                # Pinned self-hosted libraries (supabase.min.js, hls.min.js)
+|-- auth/                      # Supabase token exchange, callback, and logout handlers
+|-- database/                  # Schema, migrations, and seed scripts
+|   |-- hostinger_mysql.sql    # Complete master database schema
+|   |-- seed_sample.sql        # Sample programs and cohort seed data
+|   +-- migrations/            # Idempotent database migrations
+|-- docs/                      # Architectural documentation and runbooks
+|   |-- ASSUMPTIONS.md         # Environment assumptions and trade-offs
+|   |-- DEPLOY_HOSTINGER.md    # Hostinger step-by-step deployment guide
+|   |-- SECURITY.md            # Comprehensive security architecture
+|   |-- VIDEO_WORKFLOW.md      # Video encoding and key gating documentation
+|   +-- WEBINAR_RUNBOOK.md     # Google Meet instructor operations manual
+|-- includes/                  # Core bootstrap and helper libraries
+|   |-- bootstrap.php          # Session hardening, CSRF, escaping, rate limiting
+|   +-- video_helper.php       # AES key encryption and HMAC token utilities
+|-- student/                   # Student classroom, lecture player, assignments, webinars
+|-- teacher/                   # Instructor lecture submissions and student grading
+|-- tools/                     # Workstation video packaging scripts (Bash and PowerShell)
+|-- .htaccess                  # Hostinger Apache security rules, HTTPS redirect, CSP
+|-- .gitignore                 # Secrets and storage directories exclusion
+|-- config.example.php         # Configuration template
+|-- db.php                     # Central database and auth facade
+|-- login.php                  # Supabase-authenticated sign in page
+|-- register.php               # Student account registration
++-- logout.php                 # Safe session destruction
+```
 
-### Step 2: Create MySQL Database in Hostinger
-1. In hPanel, go to **Databases** -> **MySQL Databases**.
-2. Create a new database:
-   - Database Name (e.g., `u123456_lms`)
-   - Username (e.g., `u123456_lmsuser`)
-   - Password (generate a strong password)
-3. Record these credentials.
+---
 
-### Step 3: Import Database Schema via phpMyAdmin
-1. In hPanel Databases, click **Enter phpMyAdmin** next to your database.
-2. Click the **SQL** tab.
-3. Open `database/hostinger_mysql.sql`, paste the contents, and execute.
+## Quick Start on Hostinger
 
-### Step 4: Configure `config.local.php`
-1. Copy `config.example.php` to `config.local.php`.
-2. For optimal security, place `config.local.php` in the directory above `public_html/learn` (or inside `public_html/learn`, where it is blocked by `.htaccess`).
-3. Fill in your MySQL credentials, Supabase URL, Anon Key, and generate a 32-byte hex `app_key`.
-4. Never commit `config.local.php`.
-
-### Step 5: Upload Files to Hostinger
-Upload repository files to `public_html/learn/` via Hostinger Git Deployment, File Manager, or FTP.
+1. Create subdomain `learn.vlsiinsights.com` pointing to `public_html/learn`.
+2. Create MySQL database and import `database/hostinger_mysql.sql`.
+3. Copy `config.example.php` to `config.local.php` and set your credentials.
+4. Deploy the repository files via Git or FTP.
+5. Review `docs/DEPLOY_HOSTINGER.md` for complete configuration details.
