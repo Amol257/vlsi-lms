@@ -1,5 +1,5 @@
-/**
- * VLSI LMS — APPLICATION LOGIC
+﻿/**
+ * VLSI LMS : APPLICATION LOGIC
  * Replicates astarindo LMS behaviours: video resume, heartbeat tracking, sidebar drawers, modal forms
  */
 (function() {

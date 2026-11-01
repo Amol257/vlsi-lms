@@ -1,0 +1,18 @@
+# Configuration and secrets
+config.local.php
+.env
+.env.*
+
+# Upload and media directories
+storage/
+uploads/
+media/incoming/
+media/hls/*
+!media/hls/.gitkeep
+lms_storage/
+
+# System and editor files
+.DS_Store
+Thumbs.db
+*.log
+scratch/

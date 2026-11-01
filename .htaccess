@@ -1,0 +1,36 @@
+# ==============================================================================
+# VLSI LMS : Hostinger Web Server Security Hardening (.htaccess)
+# ==============================================================================
+
+# 1. Disable Directory Browsing
+Options -Indexes
+
+# 2. Enforce HTTPS
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteCond %{HTTPS} off
+    RewriteRule ^(.*)$ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]
+
+    # Block access to protected system directories
+    RewriteRule ^(database|tools|docs|storage|uploads|lms_storage|media/incoming)(\/|$) - [F,L,NC]
+</IfModule>
+
+# 3. Deny Direct Web Access to Sensitive Files and Extensions
+<FilesMatch "(^config.*\.php$|\.sql$|\.md$|^\.git|\.env|\.log$)">
+    <IfModule mod_authz_core.c>
+        Require all denied
+    </IfModule>
+    <IfModule !mod_authz_core.c>
+        Order deny,allow
+        Deny from all
+    </IfModule>
+</FilesMatch>
+
+# 4. Security Headers & Content Security Policy (CSP)
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "SAMEORIGIN"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+    Header set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    Header set Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline' https://checkout.razorpay.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; media-src 'self' blob:; connect-src 'self' https://riipijrgucqigndcjwre.supabase.co https://*.supabase.co https://api.razorpay.com https://lumberjack.razorpay.com; frame-src 'self' https://meet.google.com https://api.razorpay.com; object-src 'none'; base-uri 'self'; form-action 'self' https://*.supabase.co;"
+</IfModule>

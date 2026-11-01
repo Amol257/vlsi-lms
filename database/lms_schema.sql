@@ -1,5 +1,5 @@
--- ==============================================================================
--- VLSI LMS — SUPABASE POSTGRESQL DATABASE SCHEMA & POLICIES
+﻿-- ==============================================================================
+-- VLSI LMS : SUPABASE POSTGRESQL DATABASE SCHEMA & POLICIES
 -- ==============================================================================
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";

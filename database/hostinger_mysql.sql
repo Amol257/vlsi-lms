@@ -1,5 +1,5 @@
--- ==============================================================================
--- VLSI LMS — HOSTINGER MySQL DATABASE SCHEMA & SEED DATA
+﻿-- ==============================================================================
+-- VLSI LMS : HOSTINGER MySQL DATABASE SCHEMA & SEED DATA
 -- Import this file directly into Hostinger phpMyAdmin (SQL tab)
 -- ==============================================================================
 

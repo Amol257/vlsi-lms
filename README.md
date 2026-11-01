@@ -1,66 +1,59 @@
-# VLSI LMS — Hostinger PHP & MySQL Learning Portal
+# VLSI LMS : Hostinger PHP & MySQL Learning Portal
 
-A high-performance Learning Management System built for **VLSI Insights**, modeled identically after the architecture, user roles, and workflows of **astarindo LMS**.
+A high-performance Learning Management System built for **VLSI Insights**, providing role-based learning portals for students, faculty instructors, and administrators.
+
+> [!WARNING]
+> **Security Notice**: Previously committed default credentials (such as `admin@lms.local`, `teacher@vlsiinsights.com`, `student@example.com`, `Admin@123`, `Pass@123`) must be treated as permanently compromised. All production installations must generate unique credentials and rely on Supabase Auth.
 
 ---
 
-## 🚀 Key Features
+## Key Features
 
 1. **Native Hostinger Stack (PHP 8.x + MySQL)**:
-   - Full server-side authentication with PHP sessions and bcrypt hashing.
-   - Central database configuration in `db.php`.
-   - Complete database schema and seed data in `database/hostinger_mysql.sql`.
+   - Server-side token validation and secure PHP sessions.
+   - Central database configuration loaded from `../config.local.php` or `config.local.php`.
+   - Complete database schema and migrations in `database/`.
 
 2. **3 Core Role Portals**:
-   - **Administrators (`/admin/`)**: Manage courses, curriculum modules, cohort batches, student enrolments, approve/reject teacher lecture submissions, track student streaming hours, broadcast announcements, and inspect audit logs.
-   - **Faculty / Instructors (`/teacher/`)**: Upload recorded lectures (YouTube, Vimeo, MP4), notes (PDF), and lab testbenches (.tar.gz), track approval state.
-   - **Students (`/student/`)**: Enrolled cohort classroom, continuous video streaming with automatic position resume (`player.dataset.resume`), syllabus progress checkmarks, and lab downloads.
+   - **Administrators (`/admin/`)**: Manage courses, modules, batches, student enrollments, webinar scheduling, video approval, and audit logs.
+   - **Faculty / Instructors (`/teacher/`)**: Upload recorded lectures, notes, lab testbenches, and track lecture reviews.
+   - **Students (`/student/`)**: Enrolled cohort classroom, continuous video streaming with progress tracking, syllabus progress, lab downloads, and webinar access.
+
+3. **Enterprise Security & Session Hardening**:
+   - Strict session cookies (`HttpOnly`, `Secure`, `SameSite=Lax`).
+   - 8-hour idle timeout, 24-hour absolute session expiration.
+   - Student single-active-session concurrency locking via heartbeat.
+   - MySQL-backed rate limiting on sensitive endpoints.
+   - Comprehensive CSRF protection across all state mutations.
 
 ---
 
-## 🛠️ Step-by-Step Deployment on Hostinger
+## Step-by-Step Deployment on Hostinger
 
-### Step 1: Create a Subdomain in Hostinger
-1. Log in to **[Hostinger hPanel](https://hpanel.hostinger.com/)**.
+### Step 1: Create Subdomain in Hostinger
+1. Log in to **Hostinger hPanel**.
 2. Select your domain (`vlsiinsights.com`) and click **Manage**.
-3. In the sidebar, go to **Domains** &rarr; **Subdomains**.
-4. Enter `learn` (or `lms`) to create:
-   `learn.vlsiinsights.com` (pointing to `public_html/learn`).
+3. In the sidebar, navigate to **Domains** -> **Subdomains**.
+4. Enter `learn` to create `learn.vlsiinsights.com` (document root `public_html/learn`).
 
-### Step 2: Create a MySQL Database in Hostinger
-1. In hPanel, go to **Databases** &rarr; **MySQL Databases**.
+### Step 2: Create MySQL Database in Hostinger
+1. In hPanel, go to **Databases** -> **MySQL Databases**.
 2. Create a new database:
-   - **Database Name**: e.g., `u123456_lms`
-   - **Username**: e.g., `u123456_lmsuser`
-   - **Password**: (set a secure password)
-3. Note these credentials down.
+   - Database Name (e.g., `u123456_lms`)
+   - Username (e.g., `u123456_lmsuser`)
+   - Password (generate a strong password)
+3. Record these credentials.
 
 ### Step 3: Import Database Schema via phpMyAdmin
-1. In hPanel Databases, click **Enter phpMyAdmin** next to your new database.
+1. In hPanel Databases, click **Enter phpMyAdmin** next to your database.
 2. Click the **SQL** tab.
-3. Open `database/hostinger_mysql.sql` from this repository, copy all contents, paste into phpMyAdmin, and click **Go**.
+3. Open `database/hostinger_mysql.sql`, paste the contents, and execute.
 
-### Step 4: Configure `db.php`
-Open `db.php` and enter your Hostinger database details:
-```php
-define('DB_HOST', 'localhost');
-define('DB_NAME', 'u123456_lms');      // Your Hostinger Database Name
-define('DB_USER', 'u123456_lmsuser');  // Your Hostinger Database Username
-define('DB_PASS', 'YOUR_PASSWORD');    // Your Hostinger Database Password
-```
+### Step 4: Configure `config.local.php`
+1. Copy `config.example.php` to `config.local.php`.
+2. For optimal security, place `config.local.php` in the directory above `public_html/learn` (or inside `public_html/learn`, where it is blocked by `.htaccess`).
+3. Fill in your MySQL credentials, Supabase URL, Anon Key, and generate a 32-byte hex `app_key`.
+4. Never commit `config.local.php`.
 
 ### Step 5: Upload Files to Hostinger
-Upload all files from this repository directly to `public_html/learn/` via:
-- **Hostinger File Manager**, OR
-- **Git Deployment** in hPanel (`https://github.com/Amol257/vlsi-lms.git`), OR
-- **FTP**.
-
----
-
-## 🔑 Default Accounts (Pre-Seeded)
-
-| Role | Email | Password | Access |
-|---|---|---|---|
-| **Super Admin** | `admin@lms.local` | `Admin@123` | Full admin management & approvals |
-| **Faculty / Teacher** | `teacher@vlsiinsights.com` | `Pass@123` | Upload class recordings & lab files |
-| **Student** | `student@example.com` | `Pass@123` | Stream lectures, resume playback |
+Upload repository files to `public_html/learn/` via Hostinger Git Deployment, File Manager, or FTP.

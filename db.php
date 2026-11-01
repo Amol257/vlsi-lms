@@ -1,65 +1,89 @@
 <?php
 /**
- * VLSI LMS — CENTRAL DATABASE CONFIGURATION & AUTH HELPER
- * Edit DB credentials below to match your Hostinger MySQL Database.
+ * VLSI LMS : Database and Authentication Facade
+ * Delegates bootstrap and configuration to includes/bootstrap.php.
  */
 
-// ─── 1. HOSTINGER DATABASE CREDENTIALS ─────────────────────────────────────────
-define('DB_HOST', 'localhost');
-define('DB_NAME', 'u123456789_lms');      // Replace with your Hostinger Database Name
-define('DB_USER', 'u123456789_lmsuser');  // Replace with your Hostinger Database User
-define('DB_PASS', 'YOUR_DATABASE_PASSWORD'); // Replace with your Hostinger Database Password
+require_once __DIR__ . '/includes/bootstrap.php';
 
-// ─── 2. SESSION INITIALIZATION ────────────────────────────────────────────────
-if (session_status() === PHP_SESSION_NONE) {
-    ini_set('session.cookie_httponly', 1);
-    ini_set('session.use_only_cookies', 1);
-    session_start();
-}
-
-// ─── 3. PDO CONNECTION ────────────────────────────────────────────────────────
-function get_db() {
-    static $pdo = null;
-    if ($pdo !== null) return $pdo;
-
-    try {
-        $dsn = "mysql:host=" . DB_HOST . ";dbname=" . DB_NAME . ";charset=utf8mb4";
-        $options = [
-            PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-            PDO::ATTR_EMULATE_PREPARES   => false,
-        ];
-        $pdo = new PDO($dsn, DB_USER, DB_PASS, $options);
-        return $pdo;
-    } catch (PDOException $e) {
-        // Return null if MySQL not yet configured
+// Auth User Helper
+function auth_user() {
+    if (!isset($_SESSION['lms_user'])) {
         return null;
     }
-}
 
-// ─── 4. AUTHENTICATION & ACCESS CONTROL HELPERS ────────────────────────────────
-function auth_user() {
-    return isset($_SESSION['lms_user']) ? $_SESSION['lms_user'] : null;
-}
+    $user = $_SESSION['lms_user'];
 
-function require_role($allowed_roles = []) {
-    $user = auth_user();
-    if (!$user) {
-        header("Location: /login.php");
-        exit;
+    // For students, enforce single active session heartbeat check
+    if (($user['role'] ?? '') === 'student') {
+        $pdo = get_db();
+        if ($pdo) {
+            try {
+                $stmt = $pdo->prepare("SELECT session_id FROM lms_active_session WHERE user_id = ? LIMIT 1");
+                $stmt->execute([$user['id']]);
+                $active = $stmt->fetch();
+                $current_sid = session_id();
+
+                if ($active && $active['session_id'] !== $current_sid) {
+                    // Session displaced by another login
+                    session_unset();
+                    session_destroy();
+                    return null;
+                }
+            } catch (PDOException $e) {
+                // Table might not exist yet during initial installation
+            }
+        }
     }
-    if (!empty($allowed_roles) && !in_array($user['role'], $allowed_roles)) {
-        if ($user['role'] === 'admin') header("Location: /admin/index.php");
-        elseif ($user['role'] === 'teacher') header("Location: /teacher/index.php");
-        else header("Location: /student/index.php");
-        exit;
-    }
+
     return $user;
 }
 
-function json_res($data, $code = 200) {
-    http_response_code($code);
-    header('Content-Type: application/json');
-    echo json_encode($data);
-    exit;
+// Role Enforcement Helper
+function require_role($allowed_roles = []) {
+    $user = auth_user();
+    if (!$user) {
+        $current_url = $_SERVER['REQUEST_URI'] ?? '/';
+        header("Location: /login.php?redirect=" . urlencode($current_url));
+        exit;
+    }
+
+    if (!empty($allowed_roles) && !in_array($user['role'], $allowed_roles, true)) {
+        if ($user['role'] === 'admin') {
+            header("Location: /admin/index.php");
+        } elseif ($user['role'] === 'teacher') {
+            header("Location: /teacher/index.php");
+        } else {
+            header("Location: /student/index.php");
+        }
+        exit;
+    }
+
+    return $user;
+}
+
+// Audit Logging Helper
+function lms_audit_log($actor_id, string $action, ?string $entity = null, $entity_id = null, array $meta = []): void {
+    $pdo = get_db();
+    if (!$pdo) {
+        return;
+    }
+
+    $ip = get_client_ip();
+    $meta_json = json_encode($meta);
+
+    try {
+        // Support audit_log (new phase schema) and fallback to lms_audit_logs if legacy
+        $stmt = $pdo->prepare("INSERT INTO audit_log (actor_id, action, entity, entity_id, meta, ip, created_at) VALUES (?, ?, ?, ?, ?, ?, NOW())");
+        $stmt->execute([$actor_id, $action, $entity, $entity_id ? (int)$entity_id : null, $meta_json, $ip]);
+    } catch (PDOException $e) {
+        try {
+            $legacy_actor = is_numeric($actor_id) ? "User #{$actor_id}" : (string)$actor_id;
+            $legacy_details = $meta_json ?: ($entity ? "{$entity} #{$entity_id}" : '');
+            $stmt = $pdo->prepare("INSERT INTO lms_audit_logs (actor, action, details) VALUES (?, ?, ?)");
+            $stmt->execute([$legacy_actor, $action, $legacy_details]);
+        } catch (PDOException $ex) {
+            error_log("Audit log failed: " . $ex->getMessage());
+        }
+    }
 }

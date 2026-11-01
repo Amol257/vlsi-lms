@@ -1,5 +1,5 @@
-/**
- * VLSI LMS — DATA ENGINE & AUTHENTICATION MANAGER
+﻿/**
+ * VLSI LMS : DATA ENGINE & AUTHENTICATION MANAGER
  * Provides pre-seeded data matching astarindo LMS with full CRUD and role support
  */
 (function(window) {
