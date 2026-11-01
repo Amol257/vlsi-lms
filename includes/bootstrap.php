@@ -8,6 +8,7 @@
 error_reporting(E_ALL);
 ini_set('display_errors', '0');
 ini_set('log_errors', '1');
+date_default_timezone_set('Asia/Kolkata');
 
 // 2. Load Configuration
 function lms_config(?string $key = null, $default = null) {
@@ -174,6 +175,7 @@ function get_db(): ?PDO {
             PDO::ATTR_EMULATE_PREPARES => false,
         ];
         $pdo = new PDO($dsn, $user, $pass, $options);
+        $pdo->exec("SET time_zone = '+05:30'");
         return $pdo;
     } catch (PDOException $e) {
         error_log("Database connection error: " . $e->getMessage());

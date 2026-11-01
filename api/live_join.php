@@ -27,22 +27,6 @@ if (!$pdo) {
 }
 
 try {
-    // Ensure live_sessions table exists
-    $pdo->exec("CREATE TABLE IF NOT EXISTS `live_sessions` (
-        `id` int(11) NOT NULL AUTO_INCREMENT,
-        `type` enum('webinar','class') NOT NULL DEFAULT 'webinar',
-        `title` varchar(255) NOT NULL,
-        `description` text DEFAULT NULL,
-        `starts_at` datetime NOT NULL,
-        `meet_url` varchar(255) NOT NULL,
-        `program_id` int(11) DEFAULT NULL,
-        `created_by` int(11) DEFAULT NULL,
-        `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (`id`),
-        KEY `idx_starts_at` (`starts_at`),
-        KEY `idx_type` (`type`)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
     $stmt = $pdo->prepare("SELECT * FROM live_sessions WHERE id = ? LIMIT 1");
     $stmt->execute([$session_id]);
     $live = $stmt->fetch();
@@ -51,21 +35,25 @@ try {
         json_res(['error' => 'Webinar session not found.'], 404);
     }
 
-    $now = time();
-    $starts_at = strtotime($live['starts_at']);
-    $window_start = $starts_at - (10 * 60);      // 10 minutes prior
-    $window_end = $starts_at + (3 * 3600);       // 3 hours after
+    // Compute live join window strictly in Asia/Kolkata timezone (10 min prior, 3 hours after)
+    $tz = new DateTimeZone('Asia/Kolkata');
+    $start_dt = new DateTime($live['starts_at'], $tz);
+    $starts_at_ts = $start_dt->getTimestamp();
+    $now_ts = (new DateTime('now', $tz))->getTimestamp();
+
+    $window_start = $starts_at_ts - (10 * 60);      // 10 minutes prior
+    $window_end = $starts_at_ts + (3 * 3600);       // 3 hours after
 
     // Students must be within live window; Admins/Teachers may preview anytime
     if ($user['role'] === 'student') {
-        if ($now < $window_start) {
-            $mins_left = ceil(($starts_at - $now) / 60);
+        if ($now_ts < $window_start) {
+            $mins_left = ceil(($starts_at_ts - $now_ts) / 60);
             json_res([
                 'error' => "Webinar is not currently live. It starts in {$mins_left} minutes (access opens 10 minutes prior)."
             ], 403);
         }
 
-        if ($now > $window_end) {
+        if ($now_ts > $window_end) {
             json_res([
                 'error' => 'This webinar session has concluded.'
             ], 403);
@@ -88,5 +76,5 @@ try {
 
 } catch (PDOException $e) {
     error_log("Live join error: " . $e->getMessage());
-    json_res(['error' => 'Internal server error processing webinar join.'], 500);
+    json_res(['error' => 'Server error retrieving webinar session.'], 500);
 }

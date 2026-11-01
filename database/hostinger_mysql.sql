@@ -371,25 +371,8 @@ INSERT INTO `lms_batches` (`id`, `course_id`, `code`, `name`, `schedule`, `statu
 (2, 2, 'DV-FALL-2026', 'DV Cohort 04 (Evening)', 'Mon/Wed/Fri 7 PM - 9 PM IST', 'active')
 ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
 
-INSERT INTO `lms_users` (`id`, `name`, `email`, `password_hash`, `role`, `batch_id`) VALUES
-(1, 'Super Admin', 'admin@lms.local', '$2y$10$f6h.wzO6K6v5M8PZgK4CieYc1C0R0.fM9f.J3M1h7xQ7m2aJ0Y0Z6', 'admin', NULL),
-(2, 'Sanjay Deshmukh', 'teacher@vlsiinsights.com', '$2y$10$f6h.wzO6K6v5M8PZgK4CieYc1C0R0.fM9f.J3M1h7xQ7m2aJ0Y0Z6', 'teacher', 1),
-(3, 'Rahul Sharma', 'student@example.com', '$2y$10$f6h.wzO6K6v5M8PZgK4CieYc1C0R0.fM9f.J3M1h7xQ7m2aJ0Y0Z6', 'student', 1),
-(4, 'Priya Kulkarni', 'priya.k@example.com', '$2y$10$f6h.wzO6K6v5M8PZgK4CieYc1C0R0.fM9f.J3M1h7xQ7m2aJ0Y0Z6', 'student', 1),
-(5, 'Arun Mehra', 'arun.m@example.com', '$2y$10$f6h.wzO6K6v5M8PZgK4CieYc1C0R0.fM9f.J3M1h7xQ7m2aJ0Y0Z6', 'student', 2)
-ON DUPLICATE KEY UPDATE `name` = VALUES(`name`);
-
-INSERT INTO `lms_lectures` (`id`, `batch_id`, `subject_id`, `teacher_id`, `teacher_name`, `title`, `description`, `video_type`, `video_url`, `duration_seconds`, `notes_url`, `lab_url`, `status`) VALUES
-(1, 1, 1, 2, 'Sanjay Deshmukh', 'Lec 01: Advanced Floorplanning & Macro Placement Strategy', 'Core utilization, keep-out margins, channel estimation, and optimal flyline routing for multi-macro ASICs.', 'youtube', 'https://www.youtube.com/embed/gOo57e69_B8', 3600, 'https://vlsiinsights.com/docs/PD_Floorplan_Notes.pdf', 'https://vlsiinsights.com/labs/macro_placement_lab.tar.gz', 'published'),
-(2, 1, 1, 2, 'Sanjay Deshmukh', 'Lec 02: Power Mesh IR Drop & Stripe Pitch Calculation', 'Static & dynamic IR drop mitigation, EM limits, via ladder resistance, and top metal strap sizing formulas.', 'youtube', 'https://www.youtube.com/embed/gOo57e69_B8', 4200, 'https://vlsiinsights.com/docs/Power_Grid_Calculations.pdf', NULL, 'published'),
-(3, 1, 2, 2, 'Sanjay Deshmukh', 'Lec 03: Clock Tree Synthesis & Inverter Sizing Review', 'Teacher submitted lecture awaiting administrator review and publishing approval.', 'youtube', 'https://www.youtube.com/embed/gOo57e69_B8', 3100, NULL, NULL, 'submitted')
-ON DUPLICATE KEY UPDATE `title` = VALUES(`title`);
-
-INSERT INTO `lms_progress` (`id`, `user_id`, `lecture_id`, `position_seconds`, `duration_seconds`, `percent_watched`, `is_completed`) VALUES
-(1, 3, 1, 2850, 3600, 79, 0),
-(2, 4, 1, 3600, 3600, 100, 1)
-ON DUPLICATE KEY UPDATE `percent_watched` = VALUES(`percent_watched`);
-
+-- Note: User accounts and passwords are not seeded in production SQL.
+-- Users authenticate via Supabase Auth and initial admins are bootstrapped via ADMIN_BOOTSTRAP_EMAILS.
 INSERT INTO `lms_announcements` (`id`, `batch_id`, `title`, `content`) VALUES
 (1, 1, 'Live Lab Session this Saturday 11 AM IST', 'We will be debugging signoff timing violations on the 28nm RISC-V SoC core. Please have QuestaSim or EDA Playground open.'),
 (2, NULL, 'LMS System Upgrade & Video Streaming', 'Our lecture streaming now supports instant resume and multi-resolution playback.')

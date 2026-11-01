@@ -6,21 +6,6 @@ $pdo = get_db();
 $webinars = [];
 if ($pdo) {
     try {
-        $pdo->exec("CREATE TABLE IF NOT EXISTS `live_sessions` (
-            `id` int(11) NOT NULL AUTO_INCREMENT,
-            `type` enum('webinar','class') NOT NULL DEFAULT 'webinar',
-            `title` varchar(255) NOT NULL,
-            `description` text DEFAULT NULL,
-            `starts_at` datetime NOT NULL,
-            `meet_url` varchar(255) NOT NULL,
-            `program_id` int(11) DEFAULT NULL,
-            `created_by` int(11) DEFAULT NULL,
-            `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (`id`),
-            KEY `idx_starts_at` (`starts_at`),
-            KEY `idx_type` (`type`)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
-
         $stmt = $pdo->query("SELECT * FROM live_sessions WHERE type = 'webinar' ORDER BY starts_at DESC LIMIT 10");
         $webinars = $stmt->fetchAll();
     } catch (PDOException $e) {
@@ -51,9 +36,9 @@ if ($pdo) {
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
         <span>My Batches</span>
       </a>
-      <a href="/student/player.php">
+      <a href="/student/programs.php">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        <span>Lecture Player</span>
+        <span>Programs</span>
       </a>
       <a href="/student/webinars.php" class="on">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 10l5-5v14l-5-5M4 6h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/></svg>
@@ -95,12 +80,12 @@ if ($pdo) {
           <?php else: ?>
             <form id="joinWebinarForm" style="display: flex; flex-direction: column; gap: 18px;">
               <label style="display: flex; flex-direction: column; gap: 6px; font-weight: 600;">
-                <span>Select Webinar Session</span>
+                <span>Select Webinar Session (Scheduled in IST)</span>
                 <select id="webinarSelect" style="padding: 12px; font-size: 15px; border-radius: 8px; border: 1px solid var(--line); background: #ffffff;">
                   <?php $first = true; foreach ($webinars as $w): ?>
                     <?php
                       $starts_time = strtotime($w['starts_at']);
-                      $formatted_date = date('D, M j, Y \a\t g:i A T', $starts_time);
+                      $formatted_date = date('D, M j, Y \a\t g:i A', $starts_time) . ' IST';
                       $diff = time() - $starts_time;
                       $status_tag = ($diff >= -600 && $diff <= 10800) ? ' [LIVE NOW]' : (($diff < -600) ? ' [Upcoming]' : ' [Past]');
                     ?>
@@ -123,7 +108,7 @@ if ($pdo) {
           <?php endif; ?>
 
           <div style="margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted);">
-            <b>Note on joining:</b> Access opens exactly 10 minutes prior to scheduled start time. Ensure you have microphone permissions enabled in your browser.
+            <b>Note on joining:</b> All webinars are scheduled in Indian Standard Time (IST, UTC+05:30). Access opens exactly 10 minutes prior to scheduled start time. Ensure you have microphone permissions enabled in your browser.
           </div>
         </section>
       </div>
@@ -139,77 +124,88 @@ const webinarsData = <?= json_encode($webinars) ?>;
 function updateDetails() {
   const select = document.getElementById('webinarSelect');
   if (!select) return;
-  const currentId = parseInt(select.value, 10);
-  const found = webinarsData.find(w => parseInt(w.id, 10) === currentId);
-  const descEl = document.getElementById('webinarDescription');
-  if (found && found.description) {
-    descEl.textContent = found.description;
-  } else {
-    descEl.textContent = 'Live interactive webinar hosted via Google Meet.';
+  const selectedId = parseInt(select.value, 10);
+  const found = webinarsData.find(w => parseInt(w.id, 10) === selectedId);
+  const descBox = document.getElementById('webinarDescription');
+  if (found && descBox) {
+    const desc = found.description ? found.description : 'No detailed agenda provided for this session.';
+    descBox.innerHTML = '<strong>Agenda:</strong> ' + desc.replace(/\n/g, '<br>');
   }
 }
 
-const selectEl = document.getElementById('webinarSelect');
-if (selectEl) {
-  selectEl.addEventListener('change', updateDetails);
-  updateDetails();
-}
+document.getElementById('webinarSelect')?.addEventListener('change', updateDetails);
+updateDetails();
 
-const joinBtn = document.getElementById('joinBtn');
-if (joinBtn) {
-  joinBtn.addEventListener('click', async () => {
-    const webinarId = document.getElementById('webinarSelect').value;
-    const statusAlert = document.getElementById('joinStatusAlert');
+// Join Webinar Action with Pop-up Blocker Protection
+document.getElementById('joinBtn')?.addEventListener('click', async function(e) {
+  e.preventDefault();
+  const select = document.getElementById('webinarSelect');
+  const alertBox = document.getElementById('joinStatusAlert');
+  const webinarId = select ? select.value : 0;
 
-    statusAlert.style.display = 'none';
+  if (!webinarId) {
+    showAlert('Please select a webinar session.', 'danger');
+    return;
+  }
 
-    // Step 1: Open blank tab immediately to bypass popup blockers
-    const newTab = window.open('about:blank', '_blank');
+  // Open blank window immediately on user gesture to avoid browser popup blockers
+  const targetTab = window.open('about:blank', '_blank');
+  if (targetTab) {
+    targetTab.opener = null; // Secures window.opener reference
+  }
 
-    try {
-      joinBtn.disabled = true;
-      joinBtn.textContent = 'Connecting to Google Meet...';
+  showAlert('Verifying webinar access window and generating secure join credentials...', 'info');
 
-      // Step 2: Request validated Meet link from API
-      const res = await fetch('/api/live_join.php?id=' + encodeURIComponent(webinarId), {
-        method: 'GET',
-        headers: {
-          'Accept': 'application/json'
-        },
-        credentials: 'same-origin'
-      });
+  try {
+    const res = await fetch('/api/live_join.php?id=' + encodeURIComponent(webinarId), {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      },
+      credentials: 'same-origin'
+    });
 
-      const data = await res.json();
+    const data = await res.json();
 
-      if (!res.ok) {
-        // Close opened tab and display error message
-        if (newTab) newTab.close();
-        statusAlert.className = '';
-        statusAlert.style.background = 'var(--red-soft)';
-        statusAlert.style.color = 'var(--red)';
-        statusAlert.textContent = data.error || 'Could not join webinar.';
-        statusAlert.style.display = 'block';
-        return;
-      }
-
-      // Step 3: Redirect blank tab to verified Google Meet URL
-      if (newTab && data.meet_url) {
-        newTab.location.href = data.meet_url;
-      } else if (data.meet_url) {
+    if (res.ok && data.success && data.meet_url) {
+      showAlert('Access granted! Redirecting to Google Meet session...', 'success');
+      if (targetTab) {
+        targetTab.location.href = data.meet_url;
+      } else {
         window.location.href = data.meet_url;
       }
-
-    } catch (err) {
-      if (newTab) newTab.close();
-      statusAlert.style.background = 'var(--red-soft)';
-      statusAlert.style.color = 'var(--red)';
-      statusAlert.textContent = 'Network error while attempting to join webinar.';
-      statusAlert.style.display = 'block';
-    } finally {
-      joinBtn.disabled = false;
-      joinBtn.textContent = 'Join the webinar';
+    } else {
+      if (targetTab) {
+        targetTab.close();
+      }
+      showAlert(data.error || 'Unable to join webinar at this time.', 'danger');
     }
-  });
+  } catch (err) {
+    if (targetTab) {
+      targetTab.close();
+    }
+    showAlert('Network error communicating with LMS server. Please check your connection.', 'danger');
+  }
+});
+
+function showAlert(message, type) {
+  const box = document.getElementById('joinStatusAlert');
+  if (!box) return;
+  box.style.display = 'block';
+  box.textContent = message;
+  if (type === 'danger') {
+    box.style.background = 'var(--red-soft)';
+    box.style.color = 'var(--red)';
+    box.style.border = '1px solid #fecaca';
+  } else if (type === 'success') {
+    box.style.background = '#ecfdf5';
+    box.style.color = '#047857';
+    box.style.border = '1px solid #a7f3d0';
+  } else {
+    box.style.background = '#eff6ff';
+    box.style.color = '#1d4ed8';
+    box.style.border = '1px solid #bfdbfe';
+  }
 }
 </script>
 </body>
