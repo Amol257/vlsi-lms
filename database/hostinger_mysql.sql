@@ -342,6 +342,23 @@ CREATE TABLE IF NOT EXISTS `rate_limits` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ==============================================================================
+
+-- 21. Security Violations Table (Anti-Piracy and Screen Capture Events)
+CREATE TABLE IF NOT EXISTS `security_violations` (
+  `id` int(11) NOT NULL AUTO_INCREMENT,
+  `user_id` int(11) NOT NULL,
+  `video_id` int(11) DEFAULT NULL,
+  `violation_type` varchar(64) NOT NULL,
+  `details` text DEFAULT NULL,
+  `ip` varchar(64) NOT NULL,
+  `user_agent` text DEFAULT NULL,
+  `created_at` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_sec_user_created` (`user_id`, `created_at`),
+  KEY `idx_sec_type` (`violation_type`),
+  CONSTRAINT `fk_sec_user` FOREIGN KEY (`user_id`) REFERENCES `lms_users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
 -- PRE-SEEDED SEED DATA
 -- ==============================================================================
 

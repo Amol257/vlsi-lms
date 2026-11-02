@@ -47,7 +47,7 @@ foreach ($all_files as $filepath) {
     $code = file_get_contents($filepath);
 
     // Check em dashes
-    if (preg_match('/\x{2014}/u', $code) || strpos($code, '—') !== false) {
+    if (preg_match('/\x{2014}/u', $code) || str_contains($code, "\xE2\x80\x94")) {
         $issues[] = "$rel: Contains forbidden Unicode em dash";
         $stats['em_dashes']++;
     }

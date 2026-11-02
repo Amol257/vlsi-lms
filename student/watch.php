@@ -140,6 +140,52 @@ $hidden_pause_sec = (int)lms_config('player.hidden_pause_seconds', 60);
   padding: 24px;
   text-align: center;
 }
+.security-blackout-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background: #000000;
+  z-index: 50;
+  color: #ffffff;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  padding: 32px;
+  text-align: center;
+}
+.security-blackout-overlay .sec-badge {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 16px;
+}
+.security-blackout-overlay .sec-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: #ffffff;
+}
+.security-blackout-overlay .sec-reason-text {
+  font-size: 14px;
+  color: #94a3b8;
+  max-width: 480px;
+  line-height: 1.6;
+  margin-bottom: 20px;
+}
+.security-blackout-overlay .sec-watermark-notice {
+  font-family: monospace;
+  font-size: 11px;
+  color: #64748b;
+  border-top: 1px solid #1e293b;
+  padding-top: 12px;
+  max-width: 420px;
+}
 </style>
 </head>
 <body class="role-student">
@@ -194,6 +240,15 @@ $hidden_pause_sec = (int)lms_config('player.hidden_pause_seconds', 60);
             <div id="playerErrorOverlay" class="player-error-overlay">
               <p id="playerErrorText" style="font-size: 15px; margin-bottom: 16px; color: #fca5a5; max-width: 460px; line-height: 1.5;"></p>
               <button type="button" class="btn btn-sm btn-primary" id="btnReloadPlayer">Reload Player</button>
+            </div>
+            <!-- Pitch-Black Anti-Piracy and Screen Capture Blackout Overlay -->
+            <div id="securityBlackoutOverlay" class="security-blackout-overlay">
+              <span class="sec-badge">Security Guard Active</span>
+              <div class="sec-title">Playback Paused</div>
+              <div class="sec-reason-text">Screen recording, window blur, or capture utility detected. Return focus to this window to resume playback.</div>
+              <div class="sec-watermark-notice">
+                Session Monitored: <?= h($student['email']) ?> | <?= h($client_ip) ?>
+              </div>
             </div>
           </div>
 
@@ -250,6 +305,7 @@ $hidden_pause_sec = (int)lms_config('player.hidden_pause_seconds', 60);
 
 <script src="/assets/app.js"></script>
 <script src="/assets/heartbeat.js"></script>
+<script src="/assets/js/anti_piracy.js"></script>
 
 <script>
 // Pluggable VideoProvider Interface (Allows Drop-in Hardware DRM later)
@@ -411,6 +467,20 @@ document.getElementById('btnReloadPlayer')?.addEventListener('click', () => {
 
 // Initialize Player via Provider Interface
 VideoProvider.init(videoEl, playlistUrl, resumeSeconds);
+
+// Initialize Hardened Anti-Piracy and Screen-Capture Defense Engine
+if (window.VLSI_AntiPiracy) {
+  VLSI_AntiPiracy.init({
+    videoId: videoId,
+    studentEmail: <?= json_encode($student['email']) ?>,
+    clientIp: <?= json_encode($client_ip) ?>,
+    csrfToken: csrfToken,
+    videoElementId: 'lmsVideo',
+    containerElementId: 'playerContainer',
+    overlayElementId: 'securityBlackoutOverlay',
+    watermarkElementId: 'watermark'
+  });
+}
 
 // Watermark Jitter and Clock
 function updateWatermark() {
