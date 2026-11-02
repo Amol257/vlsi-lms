@@ -7,16 +7,16 @@ $id = intval($_GET['id'] ?? 1);
 
 // Handle status updates
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
+    require_csrf();
     $new_status = $_POST['status'] ?? '';
     if (in_array($new_status, ['published', 'draft', 'rejected'])) {
         $stmt = $pdo->prepare("UPDATE lms_lectures SET status = ? WHERE id = ?");
         $stmt->execute([$new_status, $id]);
 
-        // Audit log
-        $actor = $admin['email'];
-        $act_desc = ($new_status === 'published') ? 'Approved & Published Lecture' : 'Updated status to ' . $new_status;
-        $pdo->prepare("INSERT INTO lms_audit_logs (actor, action, details) VALUES (?, ?, ?)")
-            ->execute([$actor, $act_desc, "Lecture ID #$id"]);
+        lms_audit_log($admin['id'], 'update_lecture_status', 'lms_lectures', $id, [
+            'status' => $new_status,
+            'title' => $lec['title'] ?? 'Lecture'
+        ]);
     }
     header("Location: lecture_view.php?id=$id");
     exit;
@@ -124,15 +124,18 @@ if (!$lec) {
               <div style="display: flex; gap: 8px;">
                 <?php if ($lec['status'] === 'submitted' || $lec['status'] === 'draft'): ?>
                   <form method="post" class="inline">
+                    <?= csrf_field() ?>
                     <input type="hidden" name="status" value="published">
                     <button class="btn btn-primary" type="submit">✓ Approve &amp; Publish</button>
                   </form>
                   <form method="post" class="inline">
+                    <?= csrf_field() ?>
                     <input type="hidden" name="status" value="rejected">
                     <button class="btn btn-danger btn-sm" type="submit">Reject</button>
                   </form>
                 <?php else: ?>
                   <form method="post" class="inline">
+                    <?= csrf_field() ?>
                     <input type="hidden" name="status" value="draft">
                     <button class="btn btn-sm" type="submit">Unpublish to Draft</button>
                   </form>

@@ -4,6 +4,7 @@ $admin = require_role(['admin']);
 $pdo = get_db();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
+    require_csrf();
     $action = $_POST['action'] ?? '';
     if ($action === 'add_course') {
         $code = strtoupper(trim($_POST['code'] ?? ''));
@@ -23,7 +24,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
         $cid = intval($_POST['course_id'] ?? 0);
         $name = trim($_POST['name'] ?? '');
         if ($cid && $name) {
-            $order = $pdo->query("SELECT COALESCE(MAX(order_idx),0) + 1 FROM lms_subjects WHERE course_id = $cid")->fetchColumn();
+            $stmt_order = $pdo->prepare("SELECT COALESCE(MAX(order_idx),0) + 1 FROM lms_subjects WHERE course_id = ?");
+            $stmt_order->execute([$cid]);
+            $order = (int)$stmt_order->fetchColumn();
+
             $stmt = $pdo->prepare("INSERT INTO lms_subjects (course_id, name, order_idx) VALUES (?, ?, ?)");
             $stmt->execute([$cid, $name, $order]);
         }
@@ -130,6 +134,7 @@ if ($pdo) {
                   <td><span class="badge badge-green">Active</span></td>
                   <td class="right nowrap">
                     <form method="post" class="inline" onsubmit="return confirm('Delete this course?')">
+                      <?= csrf_field() ?>
                       <input type="hidden" name="action" value="delete_course">
                       <input type="hidden" name="id" value="<?= $c['id'] ?>">
                       <button class="btn btn-sm" style="color: var(--red);">Delete</button>
@@ -178,6 +183,7 @@ if ($pdo) {
           <div class="card" id="newCourseCard">
             <h3>+ Create Course Track</h3>
             <form method="post" class="form" style="margin-top: 12px;">
+              <?= csrf_field() ?>
               <input type="hidden" name="action" value="add_course">
               <label>Course Code
                 <input type="text" name="code" placeholder="e.g. ANALOG" required>
@@ -196,6 +202,7 @@ if ($pdo) {
           <div class="card">
             <h3>+ Add Subject to Course</h3>
             <form method="post" class="form" style="margin-top: 12px;">
+              <?= csrf_field() ?>
               <input type="hidden" name="action" value="add_subject">
               <label>Select Course
                 <select name="course_id" required>

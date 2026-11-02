@@ -4,6 +4,7 @@ $admin = require_role(['admin']);
 $pdo = get_db();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
+    require_csrf();
     $cid = intval($_POST['course_id'] ?? 0);
     $code = strtoupper(trim($_POST['code'] ?? ''));
     $name = trim($_POST['name'] ?? '');
@@ -115,6 +116,7 @@ if ($pdo) {
         <div class="card">
           <h2>+ Create New Batch</h2>
           <form method="post" class="form">
+            <?= csrf_field() ?>
             <label>Associated Course Track
               <select name="course_id" required>
                 <?php foreach ($courses as $c): ?>

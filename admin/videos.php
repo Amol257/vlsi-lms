@@ -9,7 +9,8 @@ $notice = '';
 $error = '';
 
 // Storage usage calculation against 100 GB quota
-$used_bytes = lms_get_video_storage_usage();
+$usage = lms_get_video_storage_usage();
+$used_bytes = (int)($usage['bytes'] ?? 0);
 $quota_bytes = 100 * 1024 * 1024 * 1024; // 100 GB
 $used_gb = round($used_bytes / (1024 * 1024 * 1024), 2);
 $quota_percent = round(($used_bytes / $quota_bytes) * 100, 1);
