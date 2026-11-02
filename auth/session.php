@@ -42,7 +42,7 @@ if (empty($supabase_url) || empty($supabase_anon_key)) {
 
 $verify_url = rtrim($supabase_url, '/') . '/auth/v1/user';
 $ch = curl_init($verify_url);
-curl_setopt_array($ch, [
+$curl_options = [
     CURLOPT_RETURNTRANSFER => true,
     CURLOPT_HTTPHEADER => [
         'apikey: ' . $supabase_anon_key,
@@ -50,7 +50,14 @@ curl_setopt_array($ch, [
     ],
     CURLOPT_TIMEOUT => 10,
     CURLOPT_SSL_VERIFYPEER => true
-]);
+];
+
+$ca_bundle = __DIR__ . '/../assets/vendor/cacert.pem';
+if (file_exists($ca_bundle)) {
+    $curl_options[CURLOPT_CAINFO] = realpath($ca_bundle);
+}
+
+curl_setopt_array($ch, $curl_options);
 
 $response_body = curl_exec($ch);
 $http_code = curl_getinfo($ch, CURLINFO_HTTP_CODE);

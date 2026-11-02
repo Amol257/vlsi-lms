@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 require_once __DIR__ . '/../db.php';
 $teacher = require_role(['teacher', 'admin']);
 $pdo = get_db();

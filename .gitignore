@@ -18,3 +18,4 @@ lms_storage/
 Thumbs.db
 *.log
 scratch/
+assets/vendor/cacert.pem
