@@ -12,6 +12,24 @@ $program = null;
 $playlist_url = '';
 $all_videos = [];
 
+if ($pdo && $video_id <= 0) {
+    try {
+        $last_stmt = $pdo->prepare("SELECT video_id FROM video_progress WHERE user_id = ? ORDER BY position_sec DESC LIMIT 1");
+        $last_stmt->execute([$student['id']]);
+        $video_id = (int)$last_stmt->fetchColumn();
+
+        if ($video_id <= 0) {
+            $trial_stmt = $pdo->query("SELECT id FROM videos WHERE status = 'approved' AND is_trial = 1 ORDER BY id ASC LIMIT 1");
+            $video_id = (int)$trial_stmt->fetchColumn();
+        }
+
+        if ($video_id <= 0) {
+            $any_stmt = $pdo->query("SELECT id FROM videos WHERE status = 'approved' ORDER BY id ASC LIMIT 1");
+            $video_id = (int)$any_stmt->fetchColumn();
+        }
+    } catch (PDOException $e) {}
+}
+
 if ($pdo && $video_id > 0) {
     // 1. Shared access check: Enforces admin/teacher allowance, video approved status, trial or active enrollment
     $access = lms_check_video_access($student, $video_id, $pdo);

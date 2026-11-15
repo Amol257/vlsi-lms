@@ -19,7 +19,7 @@ $active_tab = $active_tab ?? 'batches';
       <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
       <span>Programs</span>
     </a>
-    <a href="/student/player.php" class="<?= $active_tab === 'player' ? 'on' : '' ?>">
+    <a href="/student/watch.php" class="<?= $active_tab === 'player' ? 'on' : '' ?>">
       <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="5 3 19 12 5 21 5 3"/></svg>
       <span>Lecture Player</span>
     </a>
