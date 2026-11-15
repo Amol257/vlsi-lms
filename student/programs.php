@@ -5,6 +5,7 @@ $pdo = get_db();
 
 $programs = [];
 $my_enrollments = [];
+$free_lectures_by_program = [];
 
 if ($pdo) {
     try {
@@ -16,6 +17,13 @@ if ($pdo) {
         $rows = $enr_stmt->fetchAll();
         foreach ($rows as $r) {
             $my_enrollments[$r['program_id']] = $r;
+        }
+
+        $fl_stmt = $pdo->query("SELECT id, program_id, title FROM videos WHERE is_trial = 1 AND status = 'approved' ORDER BY id ASC");
+        foreach ($fl_stmt->fetchAll() as $fl) {
+            if (!isset($free_lectures_by_program[$fl['program_id']])) {
+                $free_lectures_by_program[$fl['program_id']] = $fl;
+            }
         }
     } catch (PDOException $e) {
         error_log("Programs query error: " . $e->getMessage());
@@ -38,36 +46,10 @@ $razorpay_key = lms_config('razorpay.key_id', '');
 </head>
 <body class="role-student">
 <div class="shell">
-  <aside class="sidebar">
-    <a class="brand" href="/student/index.php">
-      <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg></span>
-      <span><b>VLSI LMS</b><small>Student Classroom</small></span>
-    </a>
-    <nav>
-      <a href="/student/index.php">
-        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
-        <span>My Batches</span>
-      </a>
-      <a href="/student/programs.php" class="on">
-        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-        <span>Programs</span>
-      </a>
-      <a href="/student/player.php">
-        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        <span>Lecture Player</span>
-      </a>
-      <a href="/student/webinars.php">
-        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 10l5-5v14l-5-5M4 6h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/></svg>
-        <span>Webinars</span>
-      </a>
-    </nav>
-    <div class="sidebar-footer">
-      <a href="/logout.php" style="display: flex; align-items: center; gap: 8px; color: #f87171; font-weight: 500;">
-        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-        <span>Sign Out</span>
-      </a>
-    </div>
-  </aside>
+  <?php 
+  $active_tab = 'programs';
+  include __DIR__ . '/../includes/sidebar_student.php'; 
+  ?>
 
   <div class="main">
     <header class="topbar">
@@ -94,11 +76,14 @@ $razorpay_key = lms_config('razorpay.key_id', '');
               <p class="small muted" style="margin-bottom: 16px; line-height: 1.5;"><?= h($p['description']) ?></p>
             </div>
 
-            <div style="border-top: 1px solid var(--line); padding-top: 14px; margin-top: 14px;">
+            <div style="border-top: 1px solid var(--line); padding-top: 14px; margin-top: 14px; display: flex; flex-direction: column; gap: 8px;">
               <?php if ($is_enrolled): ?>
                 <a href="/student/player.php" class="btn btn-primary btn-block">Enter Program Classroom</a>
               <?php else: ?>
                 <button type="button" class="btn btn-primary btn-block" onclick="startCheckout(<?= (int)$p['id'] ?>)">Enroll via Razorpay</button>
+              <?php endif; ?>
+              <?php if (!empty($free_lectures_by_program[$p['id']])): ?>
+                <a href="/student/watch.php?id=<?= (int)$free_lectures_by_program[$p['id']]['id'] ?>" class="btn btn-outline btn-block">Watch Free Lecture</a>
               <?php endif; ?>
             </div>
           </div>

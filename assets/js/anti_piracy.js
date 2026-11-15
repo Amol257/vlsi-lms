@@ -33,7 +33,7 @@
     clientIp: '',
     csrfToken: '',
     maxViolations: 5,
-    blurGraceMs: 500, // Short grace period to absorb accidental desktop clicks
+    blurGraceMs: 0, // Zero delay blackout when focus is lost
     heartbeatIntervalMs: 25000
   };
 
@@ -107,95 +107,24 @@
 
     violationCount++;
     sendSecurityEvent(severity || 'window_blur', reason);
-
-    if (violationCount >= config.maxViolations) {
-      if (overlayEl) {
-        const titleEl = overlayEl.querySelector('.sec-title');
-        const reasonEl = overlayEl.querySelector('.sec-reason-text');
-        if (titleEl) titleEl.textContent = 'ACCOUNT ACCESS SUSPENDED';
-        if (reasonEl) {
-          reasonEl.textContent = 'Repeated screen recording or capture violations detected. Your session has been revoked. Contact admin@vlsiinsights.com.';
-        }
-      }
-      _origSetTimeout(function () {
-        window.location.href = '/login.php?reason=security_violation';
-      }, 3000);
-    }
   }
 
   // 6. Restore Playback when Security Conditions Clear
   function releaseBlackout() {
-    if (violationCount >= config.maxViolations) {
-      return; // Permalocked
-    }
     isBlackedOut = false;
     if (overlayEl) {
       overlayEl.style.display = 'none';
     }
   }
 
-  // 7. Dynamic Canvas-Fused Watermark Renderer
+  // 7. Visual Watermark Handled Cleanly via DOM Overlay
   function initWatermarkCanvas() {
-    if (!containerEl) return;
-
-    watermarkCanvas = document.createElement('canvas');
-    watermarkCanvas.id = 'securityWatermarkCanvas';
-    watermarkCanvas.style.position = 'absolute';
-    watermarkCanvas.style.inset = '0';
-    watermarkCanvas.style.width = '100%';
-    watermarkCanvas.style.height = '100%';
-    watermarkCanvas.style.pointerEvents = 'none';
-    watermarkCanvas.style.zIndex = '12';
-    containerEl.appendChild(watermarkCanvas);
-
-    watermarkCtx = watermarkCanvas.getContext('2d');
-    let x = 40;
-    let y = 60;
-    let dx = 0.5;
-    let dy = 0.3;
-
-    function renderFrame() {
-      if (!watermarkCanvas || !watermarkCtx || !containerEl) return;
-
-      const rect = containerEl.getBoundingClientRect();
-      if (watermarkCanvas.width !== rect.width || watermarkCanvas.height !== rect.height) {
-        watermarkCanvas.width = rect.width;
-        watermarkCanvas.height = rect.height;
-      }
-
-      watermarkCtx.clearRect(0, 0, watermarkCanvas.width, watermarkCanvas.height);
-
-      if (isBlackedOut) {
-        // Draw solid black frame in canvas buffer
-        watermarkCtx.fillStyle = '#000000';
-        watermarkCtx.fillRect(0, 0, watermarkCanvas.width, watermarkCanvas.height);
-      } else {
-        // Render bouncing semi-transparent dynamic watermark text
-        x += dx;
-        y += dy;
-        if (x <= 20 || x >= watermarkCanvas.width - 260) dx = -dx;
-        if (y <= 30 || y >= watermarkCanvas.height - 30) dy = -dy;
-
-        const timeStr = new Date().toUTCString();
-        const text = config.studentEmail + ' | ' + config.clientIp + ' | ' + timeStr;
-
-        watermarkCtx.font = '600 12px monospace';
-        watermarkCtx.fillStyle = 'rgba(255, 255, 255, 0.28)';
-        watermarkCtx.shadowColor = 'rgba(0, 0, 0, 0.7)';
-        watermarkCtx.shadowBlur = 3;
-        watermarkCtx.fillText(text, x, y);
-      }
-
-      animFrameId = requestAnimationFrame(renderFrame);
-    }
-
-    animFrameId = requestAnimationFrame(renderFrame);
+    // Left empty: DOM watermark provides clean, non-obtrusive corner placement
   }
 
   // 8. Hook Screen Capture and Recording APIs (getDisplayMedia)
   function trapScreenCaptureApis() {
     if (navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia) {
-      const origGetDisplayMedia = navigator.mediaDevices.getDisplayMedia.bind(navigator.mediaDevices);
       navigator.mediaDevices.getDisplayMedia = function () {
         triggerBlackout('Screen recording or screen share attempt was intercepted.', 'screen_share_attempt');
         return Promise.reject(new DOMException('Screen capture is prohibited by policy.', 'NotAllowedError'));
@@ -203,64 +132,50 @@
     }
   }
 
-  // 9. Hotkey and Screenshot Key Interception
+  // 9. Hotkey and Developer Tools Interception (Screenshots Allowed, DevTools Blocked)
   function setupKeyboardGuards() {
     window.addEventListener('keydown', function (e) {
-      // PrintScreen Key
-      if (e.key === 'PrintScreen' || e.keyCode === 44) {
-        e.preventDefault();
-        triggerBlackout('Screenshot capture intercepted.', 'print_screen_key');
-        return false;
-      }
-
-      // Windows Snipping Tool (Win + Shift + S), Mac Grab (Cmd + Shift + 3/4/5)
-      if ((e.shiftKey && (e.metaKey || e.altKey) && (e.key === 's' || e.key === 'S')) ||
-          (e.metaKey && e.shiftKey && (e.key === '3' || e.key === '4' || e.key === '5'))) {
-        e.preventDefault();
-        triggerBlackout('Screenshot utility shortcut intercepted.', 'screenshot_shortcut');
-        return false;
-      }
-
-      // Developer Tools shortcuts: F12, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+Shift+C
+      // Developer Tools shortcuts: F12, Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+Shift+C, Ctrl+U, Ctrl+S
       if (e.key === 'F12' ||
           (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'i' || e.key === 'J' || e.key === 'j' || e.key === 'C' || e.key === 'c')) ||
-          (e.ctrlKey && (e.key === 'u' || e.key === 'U' || e.key === 's' || e.key === 'S' || e.key === 'p' || e.key === 'P'))) {
+          (e.ctrlKey && (e.key === 'u' || e.key === 'U' || e.key === 's' || e.key === 'S'))) {
         e.preventDefault();
-        triggerBlackout('Unauthorized keyboard shortcut intercepted.', 'devtools_opened');
+        triggerBlackout('Developer tools access is disabled.', 'devtools_opened');
         return false;
-      }
-    }, true);
-
-    // Clear clipboard when window is unfocused
-    window.addEventListener('keyup', function (e) {
-      if (e.key === 'PrintScreen' || e.keyCode === 44) {
-        purgeClipboard();
       }
     }, true);
   }
 
-  // 10. Focus and Tab Visibility Guards
+  // 10. Right-Click Context Menu Prevention (Prevents "Save Video As...")
+  function setupContextMenuGuards() {
+    if (containerEl) {
+      containerEl.addEventListener('contextmenu', function (e) {
+        e.preventDefault();
+        return false;
+      });
+    }
+  }
+
+  // 11. Tab Visibility Guards (Gentle pause when switching away, no account blocks)
   function setupFocusGuards() {
-    window.addEventListener('blur', function () {
-      if (blurTimer) _origClearTimeout(blurTimer);
-      blurTimer = _origSetTimeout(function () {
-        triggerBlackout('Playback paused: Active window focus is required to view video.', 'window_blur');
-      }, config.blurGraceMs);
-    });
-
-    window.addEventListener('focus', function () {
-      if (blurTimer) {
-        _origClearTimeout(blurTimer);
-        blurTimer = null;
-      }
-      releaseBlackout();
-    });
-
     document.addEventListener('visibilitychange', function () {
       if (document.hidden) {
-        triggerBlackout('Playback paused: Tab was hidden or switched.', 'tab_hidden');
-      } else {
-        releaseBlackout();
+        if (videoEl && !videoEl.paused) {
+          try { videoEl.pause(); } catch (e) {}
+        }
+      }
+    });
+  }
+
+  // Fullscreen Container Sync Guard
+  function setupFullscreenGuards() {
+    document.addEventListener('fullscreenchange', function () {
+      if (document.fullscreenElement === videoEl && containerEl) {
+        document.exitFullscreen().then(function () {
+          if (containerEl.requestFullscreen) {
+            containerEl.requestFullscreen();
+          }
+        }).catch(function () {});
       }
     });
   }
@@ -351,7 +266,9 @@
 
       trapScreenCaptureApis();
       setupKeyboardGuards();
+      setupContextMenuGuards();
       setupFocusGuards();
+      setupFullscreenGuards();
       setupDevToolsMonitor();
       initWatermarkCanvas();
       setupMutationDefense();
@@ -363,3 +280,4 @@
   };
 
 })(window, document);
+

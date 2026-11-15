@@ -74,6 +74,15 @@ $site_url = lms_config('app.site_url', 'https://learn.vlsiinsights.com');
 
     <div id="infoAlert" style="display:none; background: #e0f2fe; color: #0369a1; padding: 10px 14px; border-radius: 8px; font-weight: 500; margin-bottom: 14px;"></div>
 
+    <?php if (in_array($_SERVER['REMOTE_ADDR'] ?? '', ['127.0.0.1', '::1', 'localhost'], true)): ?>
+      <div style="margin-bottom: 18px; padding: 14px; background: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; text-align: center;">
+        <div style="font-size: 11px; font-weight: 700; color: #065f46; letter-spacing: 0.05em; margin-bottom: 8px;">LOCAL DEV INSTANT ACCESS</div>
+        <a href="/auth/dev_login.php?as=student&redirect=<?= urlencode($safe_redirect ?: '/student/watch.php?id=2') ?>" class="btn btn-sm btn-primary" style="display: block; width: 100%; text-decoration: none; padding: 8px 12px; font-size: 14px;">
+          One-Click Sign In as Test Student
+        </a>
+      </div>
+    <?php endif; ?>
+
     <?php if ($google_oauth_enabled && !empty($supabase_url)): ?>
       <button type="button" id="googleBtn" class="btn btn-block" style="display: flex; align-items: center; justify-content: center; gap: 8px; background: #ffffff; border: 1px solid var(--line); color: var(--ink); margin-bottom: 16px;">
         <svg width="18" height="18" viewBox="0 0 24 24">

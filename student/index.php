@@ -7,6 +7,7 @@ $batch = null;
 $course = null;
 $continue_lec = null;
 $announcements = [];
+$free_lectures = [];
 $lectures_count = 0;
 
 if ($pdo) {
@@ -38,6 +39,18 @@ if ($pdo) {
     $stmt = $pdo->prepare("SELECT * FROM lms_announcements WHERE batch_id = ? OR batch_id IS NULL ORDER BY id DESC LIMIT 5");
     $stmt->execute([$bid]);
     $announcements = $stmt->fetchAll();
+
+    // Approved Free Preview Lectures (AES-128 HLS + DRM-alternative protected)
+    try {
+        $fl_stmt = $pdo->query("SELECT v.id, v.title, v.description, v.duration_sec, p.title AS program_title
+            FROM videos v
+            JOIN programs p ON v.program_id = p.id
+            WHERE v.is_trial = 1 AND v.status = 'approved'
+            ORDER BY v.id DESC");
+        $free_lectures = $fl_stmt->fetchAll();
+    } catch (PDOException $e) {
+        error_log("Free lectures fetch error: " . $e->getMessage());
+    }
 } else {
     $batch = [
         'id' => 1,
@@ -73,32 +86,10 @@ if ($pdo) {
 </head>
 <body class="role-student">
 <div class="shell">
-  <aside class="sidebar">
-    <a class="brand" href="/student/index.php">
-      <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg></span>
-      <span><b>VLSI LMS</b><small>Student Classroom</small></span>
-    </a>
-    <nav>
-      <a href="/student/index.php" class="on">
-        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
-        <span>My Batches</span>
-      </a>
-      <a href="/student/player.php">
-        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        <span>Lecture Player</span>
-      </a>
-      <a href="/student/webinars.php">
-        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 10l5-5v14l-5-5M4 6h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/></svg>
-        <span>Webinars</span>
-      </a>
-    </nav>
-    <div class="sidebar-footer">
-      <a href="/logout.php" style="display: flex; align-items: center; gap: 8px; color: #f87171; font-weight: 500;">
-        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-        <span>Sign Out</span>
-      </a>
-    </div>
-  </aside>
+  <?php 
+  $active_tab = 'batches';
+  include __DIR__ . '/../includes/sidebar_student.php'; 
+  ?>
 
   <div class="main">
     <header class="topbar">
@@ -154,6 +145,29 @@ if ($pdo) {
           </div>
         </div>
       </div>
+
+      <!-- FREE LECTURES (PROTECTED STREAM) -->
+      <?php if (!empty($free_lectures)): ?>
+      <h2>Free Lectures (Protected Preview)</h2>
+      <div class="grid-2" style="margin-bottom: 24px;">
+        <?php foreach ($free_lectures as $fl): ?>
+          <div class="card class-card">
+            <div class="card-head">
+              <span class="badge badge-blue">Free Lecture</span>
+              <span class="badge badge-grey"><?= round(((int)$fl['duration_sec']) / 60) ?>m</span>
+            </div>
+            <h3><?= h($fl['title']) ?></h3>
+            <p class="muted small"><?= h($fl['program_title']) ?></p>
+            <?php if (!empty($fl['description'])): ?>
+              <p class="small" style="color: var(--ink-2); margin: 8px 0 12px 0; line-height: 1.5;"><?= h($fl['description']) ?></p>
+            <?php endif; ?>
+            <div style="margin-top: 10px;">
+              <a href="/student/watch.php?id=<?= (int)$fl['id'] ?>" class="btn btn-primary btn-block">Watch Free Lecture</a>
+            </div>
+          </div>
+        <?php endforeach; ?>
+      </div>
+      <?php endif; ?>
 
       <!-- ANNOUNCEMENTS -->
       <h2>Cohort Announcements &amp; Live Lab Updates</h2>

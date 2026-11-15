@@ -71,48 +71,22 @@ try {
         $user_agent
     ]);
 
-    // 3. Log event into master audit log
+    // 4. Log event into master audit log
     lms_audit_log($user['id'], 'security_violation', 'videos', $video_id > 0 ? $video_id : null, [
         'type' => $violation_type,
         'details' => $details,
         'ip' => $client_ip
     ], $client_ip);
 
-    // 4. Count violations in the last 24 hours
-    $count_stmt = $pdo->prepare("SELECT COUNT(*) FROM security_violations 
-        WHERE user_id = ? AND created_at > DATE_SUB(NOW(), INTERVAL 24 HOUR)");
-    $count_stmt->execute([$user['id']]);
-    $recent_count = (int)$count_stmt->fetchColumn();
-
-    // 5. Automated Enforcement: Block user if 5 or more violations within 24 hours
-    if ($recent_count >= 5 && $user['role'] === 'student') {
-        $block_stmt = $pdo->prepare("UPDATE lms_users SET status = 'blocked' WHERE id = ?");
-        $block_stmt->execute([$user['id']]);
-
-        // Revoke active sessions immediately
-        $sess_stmt = $pdo->prepare("DELETE FROM lms_active_session WHERE user_id = ?");
-        $sess_stmt->execute([$user['id']]);
-
-        lms_audit_log($user['id'], 'account_auto_blocked', 'lms_users', $user['id'], [
-            'reason' => 'Automated block: excessive anti-piracy security violations',
-            'violation_count' => $recent_count
-        ], $client_ip);
-
-        json_res([
-            'status' => 'blocked',
-            'action' => 'terminate',
-            'message' => 'Your account has been suspended due to repeated screen recording or capture violations. Contact admin@vlsiinsights.com for review.'
-        ], 403);
-    }
-
+    // Note: Automated account blocking on routine browser events has been disabled.
+    // Screenshots are allowed and accidental window blurs will not suspend accounts.
     json_res([
         'status' => 'logged',
-        'action' => 'warning',
-        'count' => $recent_count,
-        'max_allowed' => 5
+        'type' => $violation_type
     ]);
 
 } catch (PDOException $e) {
     error_log("Security violation intake error: " . $e->getMessage());
     json_res(['error' => 'Failed to record event'], 500);
 }
+

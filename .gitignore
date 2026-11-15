@@ -12,6 +12,10 @@ media/incoming/
 media/hls/*
 !media/hls/.gitkeep
 lms_storage/
+*.mp4
+*.zip
+*.tar.gz
+*.mkv
 
 # System and editor files
 .DS_Store

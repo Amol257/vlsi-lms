@@ -107,25 +107,39 @@ $hidden_pause_sec = (int)lms_config('player.hidden_pause_seconds', 60);
   overflow: hidden;
   box-shadow: 0 8px 24px rgba(0,0,0,0.3);
 }
+.video-stage-wrap:fullscreen {
+  width: 100vw !important;
+  height: 100vh !important;
+  max-height: 100vh !important;
+  border-radius: 0 !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #000;
+}
+.video-stage-wrap:fullscreen .video-player {
+  max-height: 100vh !important;
+  height: 100% !important;
+}
 .video-player {
   width: 100%;
   max-height: 580px;
   display: block;
   background: #000;
 }
-/* Moving Security Watermark */
+/* Subtle, Non-Distracting Security Watermark */
 .security-watermark {
   position: absolute;
   pointer-events: none;
-  color: rgba(255, 255, 255, 0.35);
+  color: rgba(255, 255, 255, 0.22);
   font-family: monospace;
-  font-size: 13px;
-  font-weight: 600;
-  text-shadow: 1px 1px 2px rgba(0,0,0,0.8);
+  font-size: 11px;
+  font-weight: 500;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.6);
   padding: 4px 8px;
   user-select: none;
   z-index: 10;
-  transition: top 1s ease-in-out, left 1s ease-in-out;
+  transition: all 1.2s ease-in-out;
 }
 .player-error-overlay {
   display: none;
@@ -190,32 +204,10 @@ $hidden_pause_sec = (int)lms_config('player.hidden_pause_seconds', 60);
 </head>
 <body class="role-student">
 <div class="shell">
-  <aside class="sidebar">
-    <a class="brand" href="/student/index.php">
-      <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg></span>
-      <span><b>VLSI LMS</b><small>Student Classroom</small></span>
-    </a>
-    <nav>
-      <a href="/student/index.php">
-        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
-        <span>My Batches</span>
-      </a>
-      <a href="/student/programs.php">
-        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        <span>Programs</span>
-      </a>
-      <a href="/student/webinars.php">
-        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 10l5-5v14l-5-5M4 6h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/></svg>
-        <span>Webinars</span>
-      </a>
-    </nav>
-    <div class="sidebar-footer">
-      <a href="/logout.php" style="display: flex; align-items: center; gap: 8px; color: #f87171; font-weight: 500;">
-        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-        <span>Sign Out</span>
-      </a>
-    </div>
-  </aside>
+  <?php 
+  $active_tab = 'player';
+  include __DIR__ . '/../includes/sidebar_student.php'; 
+  ?>
 
   <div class="main">
     <header class="topbar">
@@ -231,7 +223,7 @@ $hidden_pause_sec = (int)lms_config('player.hidden_pause_seconds', 60);
         <!-- VIDEO PLAYER MAIN CONTAINER -->
         <div>
           <div class="video-stage-wrap" id="playerContainer">
-            <video id="lmsVideo" class="video-player" controls playsinline></video>
+            <video id="lmsVideo" class="video-player" controls controlsList="nodownload noplaybackrate" disablePictureInPicture oncontextmenu="return false;" playsinline></video>
             <!-- Watermark Overlay -->
             <div id="watermark" class="security-watermark">
               <?= h($student['email']) ?> | <?= h($client_ip) ?> | <span id="watermarkClock"></span>
@@ -482,19 +474,32 @@ if (window.VLSI_AntiPiracy) {
   });
 }
 
-// Watermark Jitter and Clock
+// Discreet Watermark Corner Positioning (Never blocks slides or notes)
+const watermarkCorners = [
+  { top: '12px', right: '16px', bottom: 'auto', left: 'auto' },
+  { bottom: '46px', right: '16px', top: 'auto', left: 'auto' },
+  { bottom: '46px', left: '16px', top: 'auto', right: 'auto' },
+  { top: '12px', left: '16px', bottom: 'auto', right: 'auto' }
+];
+let currentCornerIndex = 0;
+
 function updateWatermark() {
   const wm = document.getElementById('watermark');
   const clock = document.getElementById('watermarkClock');
-  const now = new Date();
-  clock.textContent = now.toLocaleTimeString();
+  if (!wm) return;
+  if (clock) {
+    const now = new Date();
+    clock.textContent = now.toLocaleTimeString();
+  }
 
-  const topPercent = Math.floor(Math.random() * 70) + 10;
-  const leftPercent = Math.floor(Math.random() * 50) + 10;
-  wm.style.top = topPercent + '%';
-  wm.style.left = leftPercent + '%';
+  const pos = watermarkCorners[currentCornerIndex % watermarkCorners.length];
+  wm.style.top = pos.top;
+  wm.style.right = pos.right;
+  wm.style.bottom = pos.bottom;
+  wm.style.left = pos.left;
+  currentCornerIndex++;
 }
-setInterval(updateWatermark, 20000);
+setInterval(updateWatermark, 45000);
 updateWatermark();
 
 // Anti-piracy: Tab hidden timer (pause only when tab has been hidden for configured seconds)

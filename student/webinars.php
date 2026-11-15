@@ -26,32 +26,10 @@ if ($pdo) {
 </head>
 <body class="role-student">
 <div class="shell">
-  <aside class="sidebar">
-    <a class="brand" href="/student/index.php">
-      <span class="brand-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg></span>
-      <span><b>VLSI LMS</b><small>Student Classroom</small></span>
-    </a>
-    <nav>
-      <a href="/student/index.php">
-        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
-        <span>My Batches</span>
-      </a>
-      <a href="/student/programs.php">
-        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-        <span>Programs</span>
-      </a>
-      <a href="/student/webinars.php" class="on">
-        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M15 10l5-5v14l-5-5M4 6h11a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2z"/></svg>
-        <span>Webinars</span>
-      </a>
-    </nav>
-    <div class="sidebar-footer">
-      <a href="/logout.php" style="display: flex; align-items: center; gap: 8px; color: #f87171; font-weight: 500;">
-        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-        <span>Sign Out</span>
-      </a>
-    </div>
-  </aside>
+  <?php 
+  $active_tab = 'webinars';
+  include __DIR__ . '/../includes/sidebar_student.php'; 
+  ?>
 
   <div class="main">
     <header class="topbar">
