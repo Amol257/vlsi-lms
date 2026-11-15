@@ -6,6 +6,7 @@ $student = require_role(['student', 'admin', 'teacher']);
 $pdo = get_db();
 
 $video_id = !empty($_GET['id']) ? (int)$_GET['id'] : 0;
+$is_embed = !empty($_GET['embed']);
 $video = null;
 $progress = null;
 $program = null;
@@ -218,9 +219,59 @@ $hidden_pause_sec = (int)lms_config('player.hidden_pause_seconds', 60);
   padding-top: 12px;
   max-width: 420px;
 }
+<?php if ($is_embed): ?>
+html, body {
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  overflow: hidden !important;
+  background: #000 !important;
+}
+.video-stage-wrap {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: 100% !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  position: relative !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+}
+.video-player {
+  width: 100% !important;
+  height: 100% !important;
+  max-height: 100% !important;
+  object-fit: contain;
+}
+<?php endif; ?>
 </style>
 </head>
-<body class="role-student">
+<body class="role-student <?= $is_embed ? 'embed-mode' : '' ?>">
+<?php if ($is_embed): ?>
+  <div class="video-stage-wrap" id="playerContainer">
+    <video id="lmsVideo" class="video-player" controls controlsList="nodownload noplaybackrate" disablePictureInPicture oncontextmenu="return false;" playsinline></video>
+    <!-- Watermark Overlay -->
+    <div id="watermark" class="security-watermark">
+      <?= h($student['email']) ?> | <?= h($client_ip) ?> | <span id="watermarkClock"></span>
+    </div>
+    <!-- Friendly Player Error Overlay -->
+    <div id="playerErrorOverlay" class="player-error-overlay">
+      <p id="playerErrorText" style="font-size: 15px; margin-bottom: 16px; color: #fca5a5; max-width: 460px; line-height: 1.5;"></p>
+      <button type="button" class="btn btn-sm btn-primary" id="btnReloadPlayer">Reload Player</button>
+    </div>
+    <!-- Pitch-Black Anti-Piracy and Screen Capture Blackout Overlay -->
+    <div id="securityBlackoutOverlay" class="security-blackout-overlay">
+      <span class="sec-badge">Security Guard Active</span>
+      <div class="sec-title">Playback Paused</div>
+      <div class="sec-reason-text">Screen recording, window blur, or capture utility detected. Return focus to this window to resume playback.</div>
+      <div class="sec-watermark-notice">
+        Session Monitored: <?= h($student['email']) ?> | <?= h($client_ip) ?>
+      </div>
+    </div>
+  </div>
+<?php else: ?>
 <div class="shell">
   <?php 
   $active_tab = 'player';
@@ -312,6 +363,7 @@ $hidden_pause_sec = (int)lms_config('player.hidden_pause_seconds', 60);
     </main>
   </div>
 </div>
+<?php endif; ?>
 
 <script src="/assets/app.js"></script>
 <script src="/assets/heartbeat.js"></script>
@@ -478,8 +530,8 @@ document.getElementById('btnReloadPlayer')?.addEventListener('click', () => {
 // Initialize Player via Provider Interface
 VideoProvider.init(videoEl, playlistUrl, resumeSeconds);
 
-// Initialize Hardened Anti-Piracy and Screen-Capture Defense Engine
-if (window.VLSI_AntiPiracy) {
+// Initialize Hardened Anti-Piracy and Screen-Capture Defense Engine (bypass window blur pause in embed mode)
+if (window.VLSI_AntiPiracy && !<?= $is_embed ? 'true' : 'false' ?>) {
   VLSI_AntiPiracy.init({
     videoId: videoId,
     studentEmail: <?= json_encode($student['email']) ?>,

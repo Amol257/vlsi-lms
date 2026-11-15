@@ -55,8 +55,22 @@ if (!$lec) {
         'video_url' => 'https://www.youtube.com/embed/gOo57e69_B8',
         'notes_url' => 'https://vlsiinsights.com/docs/PD_Floorplan_Notes.pdf',
         'lab_url' => 'https://vlsiinsights.com/labs/macro_placement_lab.tar.gz',
-        'status' => 'published'
+        'status' => 'published',
+        'video_type' => 'youtube'
     ];
+}
+
+$hls_video_id = 0;
+if ($lec) {
+    if (($lec['video_type'] ?? '') === 'hls' || !preg_match('#^https?://#i', $lec['video_url'])) {
+        if ($pdo) {
+            try {
+                $vstmt = $pdo->prepare("SELECT id FROM videos WHERE hls_dir = ? OR id = ? LIMIT 1");
+                $vstmt->execute([$lec['video_url'], intval($lec['video_url'])]);
+                $hls_video_id = (int)$vstmt->fetchColumn();
+            } catch (PDOException $e) {}
+        }
+    }
 }
 ?>
 <!doctype html>
@@ -89,8 +103,24 @@ include __DIR__ . '/../includes/sidebar_admin.php';
       <div class="grid-side align-start">
         <div>
           <div class="player-wrap">
-            <iframe src="<?= htmlspecialchars($lec['video_url']) ?>" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe>
+            <?php if ($hls_video_id > 0): ?>
+              <iframe src="/student/watch.php?id=<?= $hls_video_id ?>&embed=1" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe>
+            <?php elseif (($lec['video_type'] ?? '') === 'hls'): ?>
+              <div style="height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #94a3b8; padding: 24px; text-align: center; background: #0b0f19;">
+                <p style="margin-bottom: 8px; font-weight: 600; color: #fff;">HLS Stream Not Linked</p>
+                <small>The specified directory or ID (<code><?= htmlspecialchars($lec['video_url']) ?></code>) is not registered in the Video Library.</small>
+              </div>
+            <?php else: ?>
+              <iframe src="<?= htmlspecialchars($lec['video_url']) ?>" allowfullscreen allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"></iframe>
+            <?php endif; ?>
           </div>
+          <?php if ($hls_video_id > 0): ?>
+            <div style="margin: -6px 0 16px 0; display: flex; justify-content: flex-end;">
+              <a href="/student/watch.php?id=<?= $hls_video_id ?>" target="_blank" class="btn btn-sm btn-outline">
+                Open in Full Player ↗
+              </a>
+            </div>
+          <?php endif; ?>
 
           <div class="card">
             <div class="card-head">
